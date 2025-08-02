@@ -18,7 +18,7 @@ To set up and run the DRID API backend on your local machine, follow these step-
 ### Installation
 🚀 First, clone the repository to your local machine:
 ```bash
-git clone <repository-url> # Replace with your actual repository URL
+git clone https://github.com/unibeninterns/django-backend.git
 cd backend
 ```
 
@@ -477,5 +477,5 @@ This project is open-sourced. Details will be provided in a dedicated `LICENSE` 
 
 ## Author Info
 **Odafe Peter**
-*   Portfolio: [Your Portfolio Website](https://www.umunufolio.online)
+*   Portfolio: [My Portfolio Website](https://www.umunufolio.online)
 
