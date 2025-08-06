@@ -20,6 +20,7 @@ INSTALLED_APPS = [
 
     # App
     'users',
+    'module',
 
     # REST Framework & Auth
     'rest_framework',

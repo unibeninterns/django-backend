@@ -3,6 +3,10 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _ 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 
+ROLE_CHOICES = (
+    ('student', 'Student'),
+    ('admin', 'Admin'),
+)
 
 # Create your models here.
 class CustomAccountManager(BaseUserManager):
@@ -42,9 +46,13 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     first_name = models.CharField(max_length=150)
     last_name = models.CharField(max_length=150)
     start_date = models.DateTimeField(default=timezone.now)
-    is_staff = models.BooleanField(default=False) 
+    is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_verified = models.BooleanField(default=False)
+
+    # To help distinguish
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='student')
+    cohort = models.CharField(max_length=50, blank=True, null=True)
 
     objects = CustomAccountManager()
 
@@ -52,8 +60,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     REQUIRED_FIELDS = ["first_name", "last_name"]
 
     class Meta:
-        verbose_name = "User"        
-        verbose_name_plural = "Users" 
+        verbose_name = "User"
+        verbose_name_plural = "Users"
 
 
     def __str__(self):

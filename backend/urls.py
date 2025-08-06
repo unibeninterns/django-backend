@@ -7,6 +7,7 @@ from users.views import GoogleLogin
 
 api_routes = [
     path('', include('users.urls')),
+    path('module/', include('module.urls')),
 ]
 
 urlpatterns = [
