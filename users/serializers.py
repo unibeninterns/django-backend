@@ -10,8 +10,8 @@ from django.utils.translation import gettext_lazy as _
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ['id', 'first_name', 'last_name', 'email', 'is_verified', 'username']
-        read_only_fields = ['username', 'is_verified']
+        fields = ['id', 'first_name', 'last_name', 'email', 'is_verified', 'username', 'role', 'cohort']
+        read_only_fields = ['username', 'is_verified', 'role', 'cohort']
 
 
 
