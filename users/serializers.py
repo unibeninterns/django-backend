@@ -7,11 +7,20 @@ from django.contrib.auth import authenticate
 from django.utils.translation import gettext_lazy as _
 
 
+class AdminLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField()
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
+
         fields = ['id', 'first_name', 'last_name', 'email', 'is_verified', 'username', 'role', 'cohort']
         read_only_fields = ['username', 'is_verified', 'role', 'cohort']
+
+        fields = ['id', 'first_name', 'last_name', 'email', 'role', 'is_verified', 'username']
+        read_only_fields = ['username', 'is_verified', 'role']
 
 
 
@@ -63,7 +72,7 @@ class CustomRegisterSerializer(RegisterSerializer):
         return user
 
 class CustomLoginSerializer(LoginSerializer):
-    username = None  # Remove username field
+    username = None
     email = serializers.EmailField(required=True)
     password = serializers.CharField(style={'input_type': 'password'})
     
