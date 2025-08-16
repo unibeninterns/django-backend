@@ -45,9 +45,7 @@ python manage.py migrate
 
 🔐  Create a superuser (admin account) automatically using a script:
 This will generate a default admin account using credentials stored in your .env file.
-
-# .env.example (DO NOT COMMIT your real .env)
-💡 Create a .env file in the project root by copying .env.example, then replace the values with your desired admin account credentials.
+Create a .env file in the project root by copying .env.example, then replace the values with your desired admin account credentials.
 
 ✅ Ensure your .env includes:
 ```ini
