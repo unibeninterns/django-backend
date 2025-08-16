@@ -41,9 +41,23 @@ pip install Django djangorestframework djangorestframework-simplejwt django-cors
 python manage.py migrate
 ```
 
-🔐 Create a superuser account to access the Django admin panel:
+🔐  Create a superuser (admin account) automatically using a script:
+This will generate a default admin account using credentials stored in your .env file.
+
+# .env.example (DO NOT COMMIT your real .env)
+💡 Create a .env file in the project root by copying .env.example, then replace the values with your desired admin account credentials.
+
+✅ Ensure your .env includes:
+```ini
+DJANGO_SUPERUSER_EMAIL=admin@example.com
+DJANGO_SUPERUSER_PASSWORD=Testing_123
+DJANGO_SUPERUSER_FIRST_NAME=Admin
+DJANGO_SUPERUSER_LAST_NAME=User
+```
+
+Then run:
 ```bash
-python manage.py createsuperuser
+python manage.py runscript createsuperuser
 ```
 
 ▶️ Finally, start the Django development server:
@@ -154,6 +168,36 @@ Authenticates a user using their email and password, returning JWT access and re
 **Errors**:
 - `400 Bad Request`: Typically due to missing credentials or invalid input format.
 - `401 Unauthorized`: Indicates incorrect email or password, or if the user account is disabled.
+
+
+#### POST /api/admin-login/
+Authenticates an admin user using their email and password. Only users with the "admin" role can successfully log in through this route. Returns JWT tokens upon successful authentication.
+**Request**:
+```json
+{
+  "email": "admin@example.com",
+  "password": "YourAdminPassword123"
+}
+```
+**Response**:
+```json
+{
+  "refresh": "your-refresh-token",
+  "access": "your-access-token",
+  "user": {
+    "email": "admin@example.com",
+    "role": "admin",
+    "first_name": "Admin",
+    "last_name": "User"
+  }
+}
+```
+**Errors**:
+- `400 Bad Request`: Typically due to missing credentials or invalid input format.
+- `401 Unauthorized`: Indicates incorrect email or password, or if the user account is disabled.
+- `403 Forbidden`: Access denied if the user is not an admin..
+
+
 
 #### POST /api/auth/logout/
 Logs out the authenticated user by blacklisting their refresh token, invalidating current sessions.
@@ -474,8 +518,4 @@ We welcome contributions to enhance this project! If you're looking to contribut
 
 ## License
 This project is open-sourced. Details will be provided in a dedicated `LICENSE` file.
-
-## Author Info
-**Odafe Peter**
-*   Portfolio: [My Portfolio Website](https://www.umunufolio.online)
 

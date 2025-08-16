@@ -7,18 +7,18 @@ from django.contrib.auth.admin import UserAdmin
 class UserAdminConfig(UserAdmin):
     model = CustomUser
     ordering = ('-start_date',)
-    list_display = ('email', 'username', 'first_name', 'last_name', 'is_verified', 'is_active', 'is_superuser')
+    list_display = ('email', 'username', 'first_name', 'last_name', 'role', 'is_verified', 'is_active', 'is_superuser')
     search_fields = ('email', 'username', 'first_name')
-    list_filter = ('email', 'username', 'first_name', 'last_name', 'is_verified', 'is_active', 'is_superuser')
+    list_filter = ('email', 'username', 'first_name', 'last_name', 'role', 'is_verified', 'is_active', 'is_superuser')
     fieldsets = (
-        (None, {'fields': ('email', 'username', 'first_name', 'last_name')}),
+        (None, {'fields': ('email', 'username', 'first_name', 'last_name', 'role')}),
         ("Permissions", {'fields': ('is_verified', 'is_active', 'is_superuser')}),
     )
     add_fieldsets = (
         (None, 
             {
                 'classes': ('wide',),
-                'fields': ('email', 'username', 'first_name', 'last_name', 'password1', 'password2', 'is_verified', 'is_active', 'is_superuser')
+                'fields': ('email', 'username', 'first_name', 'last_name', 'role', 'password1', 'password2', 'is_verified', 'is_active', 'is_superuser')
             }
         ),
     )
