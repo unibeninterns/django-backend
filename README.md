@@ -1,19 +1,21 @@
-# DRID USER API: Robust User Management & Authentication
+# DRID Learning Platform API
 
 ## Overview
-This project serves as a comprehensive backend API built with **Django** and **Django REST Framework**, designed for secure and efficient user management, including robust authentication through **JWT (JSON Web Tokens)** and seamless **Google OAuth2** integration.
+This project is a robust backend API for a learning management system, built with Django and Django REST Framework. It provides comprehensive functionalities for user management, course delivery, assessments, and administrative operations, leveraging JWT for secure authentication and a custom user model.
 
 ## Features
-- **Django**: Provides a high-level Python web framework for rapid development and clean design.
-- **Django REST Framework (DRF)**: Enables building powerful and flexible Web APIs quickly and efficiently.
-- **Django Simple JWT**: Implements stateless, token-based authentication for enhanced security and scalability.
-- **Django Allauth**: Offers a comprehensive set of Django applications for authentication, including local user accounts and social authentication providers.
-- **Google OAuth2**: Facilitates quick and easy social logins via Google.
-- **CORS Headers**: Manages Cross-Origin Resource Sharing to allow secure requests from different origins.
-- **SQLite**: Utilized as the default lightweight database for development environments.
+- **User Authentication & Authorization**: Implements a custom user model with secure registration, login, password management, and social login (Google OAuth2) via `dj-rest-auth` and `django-allauth`. Utilizes JSON Web Tokens (JWT) for stateless authentication.
+- **Role-Based Access Control**: Differentiates user permissions (Admin, Student) to control access to various API resources, ensuring data integrity and security.
+- **Course Management**: Full CRUD operations for managing courses, modules, lessons, and diverse content items (video, PDF, quiz, text).
+- **Assessment System**: Supports creation and submission of quizzes, including multiple-choice, true/false, and essay questions. Tracks student scores and submissions.
+- **Payment & Enrollment**: Manages user enrollments into courses and tracks payment information, allowing for secure and organized course access.
+- **Capstone Projects**: Facilitates the submission and grading of capstone projects by students.
+- **Live Sessions**: Enables scheduling and management of live online sessions linked to specific course modules.
+- **CORS Handling**: Configured to manage Cross-Origin Resource Sharing for seamless frontend integration.
+- **Database**: Uses SQLite for development, easily configurable for production databases like PostgreSQL.
 
 ## Getting Started
-To set up and run the DRID API backend on your local machine, follow these step-by-step instructions.
+To set up the DRID Learning Platform API backend locally for development:
 
 ### Installation
 🚀 First, clone the repository to your local machine:
@@ -67,96 +69,42 @@ python manage.py runserver
 The API will be accessible at `http://127.0.0.1:8000/`.
 
 ### Environment Variables
-The application relies on specific environment variables for configuration. It's recommended to store these in a `.env` file in the project root or configure them directly in your deployment environment.
+The following environment variables are required for proper application functionality. It is recommended to use a `.env` file for local development.
 
-- `SECRET_KEY`: A unique string used for cryptographic signing. **Mandatory**.
-  Example: `django-insecure-fk5hmq=yg%4o%afyvk(8qc)96dpy6_&$obopb_*c$#q&5f9(4k` (For production, generate a strong, unique key).
-- `DEBUG`: Boolean indicating if debug mode is active. `True` enables detailed error pages. **Mandatory**.
-  Example: `True`
-- `ALLOWED_HOSTS`: A list of strings representing the host/domain names that this Django site can serve. **Mandatory**.
-  Example: `['localhost', '127.0.0.1']`
-- `FRONTEND_URL`: The base URL of the client-side application. Used for constructing email verification and password reset links. **Mandatory**.
-  Example: `http://localhost:5173`
-- `SITE_URL`: The base URL of the Django backend itself. Used for social login callbacks and other internal absolute URL constructions. **Mandatory**.
-  Example: `http://127.0.0.1:8000`
+-   `SECRET_KEY`: Django secret key for cryptographic signing. (Currently hardcoded in `settings.py` for simplicity, should be moved to env for production).
+-   `FRONTEND_URL`: URL of your frontend application (e.g., `http://localhost:5173`). Used for password reset confirmation links.
+-   `SITE_URL`: Base URL of the Django backend (e.g., `http://127.0.0.1:8000`). Used for `allauth` callbacks.
+-   `DJANGO_SUPERUSER_EMAIL`: Email for the default superuser.
+-   `DJANGO_SUPERUSER_PASSWORD`: Password for the default superuser.
+-   `DJANGO_SUPERUSER_FIRSTNAME`: First name for the default superuser.
+-   `DJANGO_SUPERUSER_LASTNAME`: Last name for the default superuser.
+
+For Google OAuth2 integration (`allauth.socialaccount.providers.google`):
+-   `SOCIAL_AUTH_GOOGLE_OAUTH2_KEY`: Google OAuth Client ID.
+-   `SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET`: Google OAuth Client Secret.
 
 ## API Documentation
 ### Base URL
-All API endpoints are accessible relative to the base URL: `http://127.0.0.1:8000/api`
+`http://127.00.1:8000/api/`
 
-### Endpoints
-
-#### POST /api/auth/registration/
-Registers a new user account with first name, last name, email, and password. An email verification link will be sent.
-**Request**:
-```json
-{
-  "first_name": "Jane",
-  "last_name": "Doe",
-  "email": "jane.doe@example.com",
-  "password": "StrongPassword123"
-}
-```
-**Response**:
-```json
-{
-  "pk": 1,
-  "email": "jane.doe@example.com",
-  "first_name": "Jane",
-  "last_name": "Doe"
-}
-```
-**Errors**:
-- `400 Bad Request`: Occurs if the email already exists, or if provided data is invalid (e.g., missing fields, password validation failure).
-
-#### POST /api/auth/registration/verify-email/
-Verifies a user's email address using the confirmation key received via email.
-**Request**:
-```json
-{
-  "key": "your_email_confirmation_key_here"
-}
-```
-**Response**:
-```json
-{
-  "detail": "ok"
-}
-```
-**Errors**:
-- `400 Bad Request`: Indicates an invalid or expired confirmation key.
-
-#### POST /api/auth/registration/resend-email/
-Requests a new email verification link to be sent to the specified email address.
-**Request**:
-```json
-{
-  "email": "user@example.com"
-}
-```
-**Response**:
-```json
-{
-  "detail": "Email verification link has been sent to the provided email address."
-}
-```
-**Errors**:
-- `400 Bad Request`: Occurs if the email is invalid or a user with that email is not found.
+### Authentication
+JWT tokens are used for authentication. After successful login, `access` and `refresh` tokens are returned. The `access` token should be included in the `Authorization` header as `Bearer <access_token>` for protected endpoints.
 
 #### POST /api/auth/login/
-Authenticates a user using their email and password, returning JWT access and refresh tokens upon success.
+Authenticates a user and provides JWT tokens.
+**Permissions**: AllowAny
 **Request**:
 ```json
 {
   "email": "user@example.com",
-  "password": "UserPassword123"
+  "password": "your_password"
 }
 ```
 **Response**:
 ```json
 {
-  "access": "eyJhbGciOiJIUzI1Ni...",
-  "refresh": "eyJhbGciOiJIUzI1Ni...",
+  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "user": {
     "pk": 1,
     "email": "user@example.com",
@@ -166,57 +114,138 @@ Authenticates a user using their email and password, returning JWT access and re
 }
 ```
 **Errors**:
-- `400 Bad Request`: Typically due to missing credentials or invalid input format.
-- `401 Unauthorized`: Indicates incorrect email or password, or if the user account is disabled.
+- 400 Bad Request: Missing `email` or `password`.
+- 401 Unauthorized: Invalid credentials.
+- 403 Forbidden: User account is disabled.
 
-
-#### POST /api/admin-login/
-Authenticates an admin user using their email and password. Only users with the "admin" role can successfully log in through this route. Returns JWT tokens upon successful authentication.
+#### POST /api/auth/token/refresh/
+Obtains a new access token using a refresh token.
+**Permissions**: AllowAny
 **Request**:
 ```json
 {
-  "email": "admin@example.com",
-  "password": "YourAdminPassword123"
+  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 **Response**:
 ```json
 {
-  "refresh": "your-refresh-token",
-  "access": "your-access-token",
-  "user": {
-    "email": "admin@example.com",
-    "role": "admin",
-    "first_name": "Admin",
-    "last_name": "User"
-  }
+  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+**Errors**:
+- 401 Unauthorized: Invalid or expired refresh token.
+
+#### POST /api/auth/token/verify/
+Verifies an access token.
+**Permissions**: AllowAny
+**Request**:
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+**Response**:
+- 200 OK (Empty response if valid)
+**Errors**:
+- 401 Unauthorized: Invalid or expired token.
+
+#### POST /api/auth/logout/
+Blacklists the current refresh token, effectively logging the user out.
+**Permissions**: IsAuthenticated
+**Request**:
+```json
+{
+  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+**Response**:
+- 200 OK (Empty response upon successful logout)
+**Errors**:
+- 401 Unauthorized: Not authenticated or invalid token.
+
+#### POST /api/auth/registration/
+Registers a new user.
+**Permissions**: AllowAny
+**Request**:
+```json
+{
+  "email": "newuser@example.com",
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "password": "StrongPassword123",
+  "password2": "StrongPassword123"
+}
+```
+**Response**:
+```json
+{
+  "pk": 2,
+  "email": "newuser@example.com",
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "username": "jane_doe"
+}
+```
+**Errors**:
+- 400 Bad Request: Invalid or missing fields, email already exists, passwords do not match.
+
+#### GET /api/auth/user/
+Retrieves details of the authenticated user.
+**Permissions**: IsAuthenticated
+**Request**: (No body)
+**Response**:
+```json
+{
+  "id": 1,
+  "first_name": "John",
+  "last_name": "Doe",
+  "email": "john.doe@example.com",
+  "is_verified": true,
+  "username": "john_doe",
+  "role": "student",
+  "cohort": "Spring 2024"
 }
 ```
 **Errors**:
 - `400 Bad Request`: Typically due to missing credentials or invalid input format.
 - `401 Unauthorized`: Indicates incorrect email or password, or if the user account is disabled.
-- `403 Forbidden`: Access denied if the user is not an admin..
 
-
-
-#### POST /api/auth/logout/
-Logs out the authenticated user by blacklisting their refresh token, invalidating current sessions.
-**Request**: (Requires `Authorization: Bearer <access_token>` header)
-```json
-{}
-```
-**Response**:
+#### POST /api/auth/password/reset/
+Initiates a password reset process, sending a reset email to the user.
+**Permissions**: AllowAny
+**Request**:
 ```json
 {
-  "detail": "Successfully logged out."
+  "email": "user@example.com"
 }
 ```
+**Response**:
+- 200 OK: {"detail": "Password reset e-mail has been sent."}
 **Errors**:
-- `401 Unauthorized`: No valid authentication credentials or an invalid token is provided.
+- 400 Bad Request: Invalid email.
+
+#### POST /api/auth/password/reset/confirm/
+Confirms password reset with UID and token from the email.
+**Permissions**: AllowAny
+**Request**:
+```json
+{
+  "uid": "...",
+  "token": "...",
+  "new_password1": "NewStrongPassword123",
+  "new_password2": "NewStrongPassword123"
+}
+```
+**Response**:
+- 200 OK: {"detail": "Password has been reset with the new password."}
+**Errors**:
+- 400 Bad Request: Invalid UID/token, passwords do not match.
 
 #### POST /api/auth/password/change/
-Allows an authenticated user to change their password.
-**Request**: (Requires `Authorization: Bearer <access_token>` header)
+Changes the password of the authenticated user.
+**Permissions**: IsAuthenticated
+**Request**:
 ```json
 {
   "old_password": "OldPassword123",
@@ -225,297 +254,537 @@ Allows an authenticated user to change their password.
 }
 ```
 **Response**:
-```json
-{
-  "detail": "New password has been saved."
-}
-```
+- 200 OK: {"detail": "New password has been set."}
 **Errors**:
-- `400 Bad Request`: Occurs if the old password doesn't match, new passwords don't match, or the new password fails validation.
-- `401 Unauthorized`: No valid authentication credentials or an invalid token is provided.
-
-#### POST /api/auth/password/reset/
-Initiates the password reset process by sending an email with a reset link to the user's registered email address.
-**Request**:
-```json
-{
-  "email": "user@example.com"
-}
-```
-**Response**:
-```json
-{
-  "detail": "Password reset e-mail has been sent."
-}
-```
-**Errors**:
-- `400 Bad Request`: Indicates that no user was found with the provided email address.
-
-#### POST /api/auth/password/reset/confirm/
-Confirms the password reset using the UID and token obtained from the reset email, setting a new password.
-**Request**:
-```json
-{
-  "uid": "user_uid_from_email",
-  "token": "reset_token_from_email",
-  "new_password1": "NewStrongPassword123",
-  "new_password2": "NewStrongPassword123"
-}
-```
-**Response**:
-```json
-{
-  "detail": "Password has been reset with the new password."
-}
-```
-**Errors**:
-- `400 Bad Request`: Occurs if the UID or token is invalid, or new passwords do not match/fail validation.
-
-#### GET /api/auth/user/
-Retrieves the profile details of the currently authenticated user.
-**Request**: (Requires `Authorization: Bearer <access_token>` header)
-```
-GET /api/auth/user/
-```
-**Response**:
-```json
-{
-  "pk": 1,
-  "email": "user@example.com",
-  "first_name": "John",
-  "last_name": "Doe"
-}
-```
-**Errors**:
-- `401 Unauthorized`: No valid authentication credentials or an invalid token is provided.
-
-#### PUT /api/auth/user/
-Fully updates the profile details of the authenticated user.
-**Request**: (Requires `Authorization: Bearer <access_token>` header)
-```json
-{
-  "first_name": "Jane",
-  "last_name": "Smith",
-  "email": "jane.smith@example.com"
-}
-```
-**Response**:
-```json
-{
-  "pk": 1,
-  "email": "jane.smith@example.com",
-  "first_name": "Jane",
-  "last_name": "Smith"
-}
-```
-**Errors**:
-- `400 Bad Request`: Invalid data provided (e.g., email already taken).
-- `401 Unauthorized`: No valid authentication credentials or an invalid token is provided.
-
-#### PATCH /api/auth/user/
-Partially updates the profile details of the authenticated user.
-**Request**: (Requires `Authorization: Bearer <access_token>` header)
-```json
-{
-  "first_name": "Joanna"
-}
-```
-**Response**:
-```json
-{
-  "pk": 1,
-  "email": "user@example.com",
-  "first_name": "Joanna",
-  "last_name": "Doe"
-}
-```
-**Errors**:
-- `400 Bad Request`: Invalid data provided.
-- `401 Unauthorized`: No valid authentication credentials or an invalid token is provided.
+- 400 Bad Request: Invalid old password, passwords do not match, or weak new password.
+- 401 Unauthorized: Not authenticated.
 
 #### POST /api/auth/google/
-Authenticates or registers a user using a Google OAuth2 access token.
+Performs Google OAuth2 login. The frontend should handle the initial OAuth redirect and then send the `code` to this endpoint.
+**Permissions**: AllowAny
 **Request**:
 ```json
 {
-  "access_token": "your_google_access_token_here"
+  "access_token": "YOUR_GOOGLE_ACCESS_TOKEN",
+  "code": "YOUR_GOOGLE_AUTH_CODE"
 }
 ```
 **Response**:
-```json
-{
-  "access": "eyJhbGciOiJIUzI1Ni...",
-  "refresh": "eyJhbGciOiJIUzI1Ni...",
-  "user": {
-    "pk": 1,
-    "email": "google_user@gmail.com",
-    "first_name": "Google",
-    "last_name": "User"
-  }
-}
-```
+(Same as `POST /api/auth/login/` with `access` and `refresh` tokens, and user details.)
 **Errors**:
-- `400 Bad Request`: Occurs if the provided Google access token is invalid or expired.
+- 400 Bad Request: Invalid `access_token` or `code`.
 
-#### GET /api/accounts/users/
-Retrieves a list of all user profiles.
-**Request**: (Requires `Authorization: Bearer <access_token>` header for authenticated access)
-```
-GET /api/accounts/users/
-```
+#### GET /api/account/users/
+Lists all users.
+**Permissions**: IsAdminUser
+**Request**: (No body)
 **Response**:
 ```json
 [
   {
     "id": 1,
-    "url": "http://127.0.0.1:8000/api/accounts/users/1/",
     "first_name": "John",
     "last_name": "Doe",
     "email": "john.doe@example.com",
     "is_verified": true,
-    "username": "john_doe"
+    "username": "john_doe",
+    "role": "student",
+    "cohort": null
+  },
+  {
+    "id": 2,
+    "first_name": "Admin",
+    "last_name": "User",
+    "email": "admin@example.com",
+    "is_verified": true,
+    "username": "admin_user",
+    "role": "admin",
+    "cohort": null
   }
 ]
 ```
-#### GET /api/accounts/users/{id}/
-Retrieves the detailed profile of a specific user by their ID.
-**Request**: (Requires `Authorization: Bearer <access_token>` header for authenticated access)
-```
-GET /api/accounts/users/1/
-```
+**Errors**:
+- 401 Unauthorized: Not authenticated.
+- 403 Forbidden: User is not an admin.
+
+#### GET /api/account/users/<int:pk>/
+Retrieves details for a specific user.
+**Permissions**: IsAuthenticated (AdminUser can view all, Owner can view their own)
+**Request**: (No body)
 **Response**:
 ```json
 {
   "id": 1,
-  "url": "http://127.0.0.1:8000/api/accounts/users/1/",
   "first_name": "John",
   "last_name": "Doe",
   "email": "john.doe@example.com",
   "is_verified": true,
-  "username": "john_doe"
+  "username": "john_doe",
+  "role": "student",
+  "cohort": null
 }
 ```
 **Errors**:
-- `401 Unauthorized`: No authentication credentials provided.
-- `403 Forbidden`: Authenticated user lacks permission to view this specific user's profile.
-- `404 Not Found`: No user exists with the specified ID.
+- 401 Unauthorized: Not authenticated.
+- 403 Forbidden: Not authorized to view this user's details.
+- 404 Not Found: User with specified ID does not exist.
 
-#### PUT /api/accounts/users/{id}/
-Fully updates the profile details of a specific user.
-**Request**: (Requires `Authorization: Bearer <access_token>` header)
+#### PUT /api/account/users/<int:pk>/
+Updates all details for a specific user.
+**Permissions**: IsAuthenticated (AdminUser can update all, Owner can update their own)
+**Request**:
 ```json
 {
-  "first_name": "Updated",
-  "last_name": "Name",
-  "email": "updated.email@example.com"
+  "first_name": "Jonathan",
+  "last_name": "Smith"
+  // Email, username, is_verified, role, cohort are read-only for non-admin updates
+}
+```
+**Response**: (Updated user object)
+**Errors**:
+- 400 Bad Request: Invalid or missing fields.
+- 401 Unauthorized: Not authenticated.
+- 403 Forbidden: Not authorized to update this user's details.
+- 404 Not Found: User with specified ID does not exist.
+
+#### PATCH /api/account/users/<int:pk>/
+Partially updates details for a specific user.
+**Permissions**: IsAuthenticated (AdminUser can update all, Owner can update their own)
+**Request**:
+```json
+{
+  "first_name": "Jon"
+}
+```
+**Response**: (Updated user object)
+**Errors**:
+- 400 Bad Request: Invalid fields.
+- 401 Unauthorized: Not authenticated.
+- 403 Forbidden: Not authorized to update this user's details.
+- 404 Not Found: User with specified ID does not exist.
+
+#### DELETE /api/account/users/<int:pk>/
+Deletes a specific user.
+**Permissions**: IsAuthenticated (AdminUser can delete all, Owner can delete their own)
+**Request**: (No body)
+**Response**:
+- 204 No Content (Empty response upon successful deletion)
+**Errors**:
+- 401 Unauthorized: Not authenticated.
+- 403 Forbidden: Not authorized to delete this user.
+- 404 Not Found: User with specified ID does not exist.
+
+### Module Endpoints
+
+#### Courses
+**Permissions**:
+- `GET /api/module/courses/`: AllowAny
+- `POST /api/module/courses/`: IsAdminUser
+- `GET/PUT/PATCH/DELETE /api/module/courses/<int:pk>/`: IsAdminUser
+**GET /api/module/courses/**: List all courses.
+**POST /api/module/courses/**: Create a new course.
+**Request**:
+```json
+{
+  "title": "Introduction to Python",
+  "description": "A comprehensive course on Python programming.",
+  "duration_weeks": 12,
+  "start_date": "2024-09-01",
+  "end_date": "2024-11-24"
 }
 ```
 **Response**:
 ```json
 {
   "id": 1,
-  "first_name": "Updated",
-  "last_name": "Name",
-  "email": "updated.email@example.com",
-  "is_verified": true,
-  "username": "updated_name"
+  "title": "Introduction to Python",
+  "description": "A comprehensive course on Python programming.",
+  "duration_weeks": 12,
+  "start_date": "2024-09-01",
+  "end_date": "2024-11-24"
 }
 ```
 **Errors**:
-- `400 Bad Request`: Invalid data provided.
-- `401 Unauthorized`: No authentication credentials provided.
-- `403 Forbidden`: Authenticated user lacks permission to update this specific user's profile.
-- `404 Not Found`: No user exists with the specified ID.
+- 400 Bad Request: Invalid data.
+- 401 Unauthorized: Not authenticated.
+- 403 Forbidden: Not an admin user for POST/PUT/PATCH/DELETE.
+- 404 Not Found: For specific course operations.
 
-#### PATCH /api/accounts/users/{id}/
-Partially updates the profile details of a specific user.
-**Request**: (Requires `Authorization: Bearer <access_token>` header)
+#### Modules
+**Permissions**:
+- `GET /api/module/modules/`: AllowAny
+- `POST /api/module/modules/`: IsAdminUser
+- `GET/PUT/PATCH/DELETE /api/module/modules/<int:pk>/`: IsAdminUser
+**GET /api/module/modules/**: List all modules.
+**POST /api/module/modules/**: Create a new module.
+**Request**:
 ```json
 {
-  "first_name": "Partial"
+  "course": 1,
+  "title": "Module 1: Python Basics",
+  "week_number": 1,
+  "description": "Covers Python syntax, variables, and data types."
 }
 ```
 **Response**:
 ```json
 {
   "id": 1,
-  "first_name": "Partial",
-  "last_name": "Doe",
-  "email": "john.doe@example.com",
-  "is_verified": true,
-  "username": "john_doe"
+  "course": 1,
+  "title": "Module 1: Python Basics",
+  "week_number": 1,
+  "description": "Covers Python syntax, variables, and data types."
+}
+```
+**Errors**: (Same as Courses)
+
+#### Lessons
+**Permissions**:
+- `GET /api/module/lessons/`: AllowAny
+- `POST /api/module/lessons/`: IsAdminUser
+- `GET/PUT/PATCH/DELETE /api/module/lessons/<int:pk>/`: IsAdminUser
+**GET /api/module/lessons/**: List all lessons.
+**POST /api/module/lessons/**: Create a new lesson.
+**Request**:
+```json
+{
+  "module": 1,
+  "title": "Lesson 1.1: Hello World",
+  "order": 1
+}
+```
+**Response**:
+```json
+{
+  "id": 1,
+  "module": 1,
+  "title": "Lesson 1.1: Hello World",
+  "order": 1
+}
+```
+**Errors**: (Same as Courses)
+
+#### Content Items
+**Permissions**:
+- `GET /api/module/content-items/`: AllowAny
+- `POST /api/module/content-items/`: IsAdminUser
+- `GET/PUT/PATCH/DELETE /api/module/content-items/<int:pk>/`: IsAdminUser
+**GET /api/module/content-items/**: List all content items.
+**POST /api/module/content-items/**: Create a new content item.
+**Request**:
+```json
+{
+  "lesson": 1,
+  "type": "video",
+  "title": "Introductory Video",
+  "external_url": "https://example.com/video.mp4",
+  "duration": "PT0H10M0S"
+}
+```
+**Response**:
+```json
+{
+  "id": 1,
+  "lesson": 1,
+  "type": "video",
+  "title": "Introductory Video",
+  "file": null,
+  "external_url": "https://example.com/video.mp4",
+  "duration": "PT0H10M0S",
+  "content": null
+}
+```
+**Errors**: (Same as Courses)
+
+#### Quizzes
+**Permissions**:
+- `POST /api/module/quizzes/`: IsStudent
+- `GET /api/module/quizzes/`: IsAuthenticated
+- `GET/PUT/PATCH/DELETE /api/module/quizzes/<int:pk>/`: IsAuthenticated, IsOwnerOrAdmin
+**GET /api/module/quizzes/**: List all quizzes.
+**POST /api/module/quizzes/**: Create a new quiz.
+**Request**: (Choose one of `lesson`, `module`, or `course`)
+```json
+{
+  "lesson": 1,
+  "title": "Lesson 1 Quiz"
+}
+```
+**Response**:
+```json
+{
+  "id": 1,
+  "lesson": 1,
+  "module": null,
+  "course": null,
+  "title": "Lesson 1 Quiz"
 }
 ```
 **Errors**:
-- `400 Bad Request`: Invalid data provided.
-- `401 Unauthorized`: No authentication credentials provided.
-- `403 Forbidden`: Authenticated user lacks permission to update this specific user's profile.
-- `404 Not Found`: No user exists with the specified ID.
+- 400 Bad Request: Invalid data (e.g., associating with multiple parents).
+- 401 Unauthorized: Not authenticated for list/retrieve/update/delete.
+- 403 Forbidden: Not a student for create, or not owner/admin for retrieve/update/delete.
+- 404 Not Found: For specific quiz operations.
 
-#### DELETE /api/accounts/users/{id}/
-Deletes a specific user profile from the system.
-**Request**: (Requires `Authorization: Bearer <access_token>` header)
-```
-DELETE /api/accounts/users/1/
+#### Questions
+**Permissions**:
+- `GET /api/module/questions/`: AllowAny
+- `POST /api/module/questions/`: IsAdminUser
+- `GET/PUT/PATCH/DELETE /api/module/questions/<int:pk>/`: IsAdminUser
+**GET /api/module/questions/**: List all questions.
+**POST /api/module/questions/**: Create a new question.
+**Request**:
+```json
+{
+  "quiz": 1,
+  "text": "What is the capital of France?",
+  "type": "multiple_choice",
+  "options": {"A": "Berlin", "B": "Paris", "C": "Rome"},
+  "correct_answer": "B"
+}
 ```
 **Response**:
-`204 No Content` (Successful deletion, no content returned)
+```json
+{
+  "id": 1,
+  "quiz": 1,
+  "text": "What is the capital of France?",
+  "type": "multiple_choice",
+  "options": {"A": "Berlin", "B": "Paris", "C": "Rome"},
+  "correct_answer": "B"
+}
+```
+**Errors**: (Same as Courses)
+
+#### Quiz Submissions
+**Permissions**:
+- `GET /api/module/quiz-submissions/`: IsAuthenticated
+- `POST /api/module/quiz-submissions/`: IsAuthenticated
+- `GET/PUT/PATCH/DELETE /api/module/quiz-submissions/<int:pk>/`: IsAuthenticated, IsOwnerOrAdmin
+**GET /api/module/quiz-submissions/**: List all quiz submissions (admin sees all, student sees their own).
+**POST /api/module/quiz-submissions/**: Create a new quiz submission. `student` field is automatically set to the authenticated user.
+**Request**:
+```json
+{
+  "quiz": 1,
+  "score": 85.5
+}
+```
+**Response**:
+```json
+{
+  "id": 1,
+  "student": 1,
+  "quiz": 1,
+  "score": 85.5,
+  "submitted_at": "2024-07-30T10:00:00Z"
+}
+```
 **Errors**:
-- `401 Unauthorized`: No authentication credentials provided.
-- `403 Forbidden`: Authenticated user lacks permission to delete this specific user's profile.
-- `404 Not Found`: No user exists with the specified ID.
+- 400 Bad Request: Invalid data.
+- 401 Unauthorized: Not authenticated.
+- 403 Forbidden: Not owner or admin for retrieve/update/delete.
+- 404 Not Found: For specific submission operations.
+
+#### Answers
+**Permissions**:
+- `POST /api/module/answers/`: IsStudent
+- `GET /api/module/answers/`: IsAuthenticated
+- `GET/PUT/PATCH/DELETE /api/module/answers/<int:pk>/`: IsAuthenticated, IsOwnerOrAdmin
+**GET /api/module/answers/**: List all answers (admin sees all, student sees their own).
+**POST /api/module/answers/**: Create a new answer. `student` field for `perform_create` seems incorrect here, should be `submission` from `quiz_submission` context, but the serializer takes `submission` directly.
+**Request**:
+```json
+{
+  "submission": 1,
+  "question": 1,
+  "answer_text": "Paris"
+}
+```
+**Response**:
+```json
+{
+  "id": 1,
+  "submission": 1,
+  "question": 1,
+  "answer_text": "Paris"
+}
+```
+**Errors**: (Similar to Quiz Submissions)
+
+#### Payments
+**Permissions**:
+- `POST /api/module/payments/`: IsStudent
+- `GET /api/module/payments/`: IsAuthenticated
+- `GET/PUT/PATCH/DELETE /api/module/payments/<int:pk>/`: IsAuthenticated, IsOwnerOrAdmin
+**GET /api/module/payments/**: List all payments (admin sees all, user sees their own).
+**POST /api/module/payments/**: Record a new payment. `user` field is automatically set to the authenticated user.
+**Request**:
+```json
+{
+  "amount": "99.99",
+  "payment_option": "Credit Card",
+  "transaction_id": "TXN123456789",
+  "status": "completed"
+}
+```
+**Response**:
+```json
+{
+  "id": 1,
+  "user": 1,
+  "amount": "99.99",
+  "payment_option": "Credit Card",
+  "transaction_id": "TXN123456789",
+  "status": "completed",
+  "created_at": "2024-07-30T10:00:00Z"
+}
+```
+**Errors**: (Similar to Quiz Submissions)
+
+#### Enrollments
+**Permissions**:
+- `POST /api/module/enrollments/`: IsStudent
+- `GET /api/module/enrollments/`: IsAuthenticated
+- `GET/PUT/PATCH/DELETE /api/module/enrollments/<int:pk>/`: IsAuthenticated, IsOwnerOrAdmin
+**GET /api/module/enrollments/**: List all enrollments (admin sees all, user sees their own).
+**POST /api/module/enrollments/**: Enroll a user in a course. `user` field is automatically set to the authenticated user.
+**Request**:
+```json
+{
+  "course": 1,
+  "payment": null,
+  "status": "active"
+}
+```
+**Response**:
+```json
+{
+  "id": 1,
+  "user": 1,
+  "course": 1,
+  "payment": null,
+  "enrolled_at": "2024-07-30T10:00:00Z",
+  "status": "active"
+}
+```
+**Errors**: (Similar to Quiz Submissions)
+
+#### Capstone Projects
+**Permissions**:
+- `POST /api/module/capstone-projects/`: IsStudent
+- `GET /api/module/capstone-projects/`: IsAuthenticated
+- `GET/PUT/PATCH/DELETE /api/module/capstone-projects/<int:pk>/`: IsAuthenticated, IsOwnerOrAdmin
+**GET /api/module/capstone-projects/**: List all capstone projects (admin sees all, student sees their own).
+**POST /api/module/capstone-projects/**: Submit a new capstone project. `student` field is automatically set to the authenticated user. Note: `submission_file` would be a file upload.
+**Request**: (Multipart/form-data for `submission_file`)
+```json
+{
+  "title": "My Final Project",
+  "description": "A detailed description of my capstone project.",
+  "submission_file": "<file_upload>"
+}
+```
+**Response**:
+```json
+{
+  "id": 1,
+  "student": 1,
+  "title": "My Final Project",
+  "description": "A detailed description of my capstone project.",
+  "submission_file": "/media/capstone_projects/my_project.pdf",
+  "submitted_at": "2024-07-30T10:00:00Z",
+  "grade": null
+}
+```
+**Errors**: (Similar to Quiz Submissions)
+
+#### Live Sessions
+**Permissions**:
+- `GET /api/module/live-sessions/`: AllowAny
+- `POST /api/module/live-sessions/`: IsAdminUser
+- `GET/PUT/PATCH/DELETE /api/module/live-sessions/<int:pk>/`: IsAdminUser
+**GET /api/module/live-sessions/**: List all live sessions.
+**POST /api/module/live-sessions/**: Schedule a new live session.
+**Request**:
+```json
+{
+  "module": 1,
+  "title": "Weekly Q&A Session",
+  "meeting_url": "https://zoom.us/j/123456789",
+  "scheduled_time": "2024-08-05T14:00:00Z",
+  "duration": "PT1H30M0S"
+}
+```
+**Response**:
+```json
+{
+  "id": 1,
+  "module": 1,
+  "title": "Weekly Q&A Session",
+  "meeting_url": "https://zoom.us/j/123456789",
+  "scheduled_time": "2024-08-05T14:00:00Z",
+  "duration": "PT1H30M0S"
+}
+```
+**Errors**: (Same as Courses)
 
 ## Usage
-Once the backend is running, you can interact with the API endpoints using tools like Postman, Insomnia, curl, or integrate it with a frontend application.
+Once the server is running, you can interact with the API using a tool like Postman, Insomnia, `curl`, or by integrating it with a frontend application.
 
-Here's an example using `curl` to register a new user:
+For instance, to register a new user:
 ```bash
 curl -X POST \
   http://127.0.0.1:8000/api/auth/registration/ \
   -H 'Content-Type: application/json' \
   -d '{
+    "email": "test@example.com",
     "first_name": "Test",
     "last_name": "User",
-    "email": "test.user@example.com",
-    "password": "SecurePassword789!"
+    "password": "Password123",
+    "password2": "Password123"
   }'
 ```
 
-After registration, you would receive an email verification link (if `ACCOUNT_EMAIL_VERIFICATION` is set to `mandatory`). Upon verification, you can log in:
+To log in:
 ```bash
 curl -X POST \
-  http://127.0.0.1:8000/api/auth/login/ \
+  http://127.00.1:8000/api/auth/login/ \
   -H 'Content-Type: application/json' \
   -d '{
-    "email": "test.user@example.com",
-    "password": "SecurePassword789!"
+    "email": "test@example.com",
+    "password": "Password123"
   }'
 ```
-This will return `access` and `refresh` tokens, which you should include in the `Authorization` header (`Authorization: Bearer <access_token>`) for subsequent protected requests.
+This will return `access` and `refresh` tokens, which you can then use to authenticate subsequent requests by adding a `Authorization: Bearer <access_token>` header.
 
 ## Technologies Used
 
-| Technology | Purpose |
-| :--------- | :------------------------------------------- |
-| ![Python](https://img.shields.io/badge/Python-3.x-blue?style=flat&logo=python&logoColor=white) | Primary programming language |
-| ![Django](https://img.shields.io/badge/Django-~5.0-092E20?style=flat&logo=django&logoColor=white) | High-level web framework |
-| ![Django REST Framework](https://img.shields.io/badge/DRF-Framework-darkgreen?style=flat&logo=django&logoColor=white) | Building Web APIs |
-| ![JWT](https://img.shields.io/badge/JWT-Authentication-black?style=flat&logo=json-web-tokens&logoColor=white) | Secure token-based authentication |
-| ![Django Allauth](https://img.shields.io/badge/Allauth-Auth-purple?style=flat) | Comprehensive authentication solution |
-| ![Google OAuth](https://img.shields.io/badge/Google%20OAuth2-Login-red?style=flat&logo=google&logoColor=white) | Social authentication integration |
-| ![CORS Headers](https://img.shields.io/badge/CORS-Middleware-orange?style=flat) | Cross-Origin Resource Sharing |
-| ![SQLite](https://img.shields.io/badge/SQLite-Database-blue?style=flat&logo=sqlite&logoColor=white) | Lightweight development database |
+| Technology                    | Version | Purpose                                              |
+| :---------------------------- | :------ | :--------------------------------------------------- |
+| Django                        | 5.2.4   | Web Framework for rapid development                  |
+| Django REST Framework         | 3.16.0  | Building robust RESTful APIs                         |
+| djangorestframework-simplejwt | 5.5.1   | JWT authentication for secure API access             |
+| dj-rest-auth                  | 7.0.1   | REST API endpoints for authentication and registration |
+| django-allauth                | 65.10.0 | Comprehensive authentication features                |
+| django-cors-headers           | 4.7.0   | Handling Cross-Origin Resource Sharing               |
+| SQLite                        | N/A     | Default database for development                     |
+| Python                        | 3.x     | Primary programming language                         |
 
 ## Contributing
-We welcome contributions to enhance this project! If you're looking to contribute, please follow these guidelines:
+We welcome contributions to enhance this project! If you're interested in contributing, please follow these guidelines:
 
-✨ Fork the repository and create your feature branch (`git checkout -b feature/AmazingFeature`).
-🐛 Ensure all existing tests pass and add new tests for your features.
-💡 Adhere to the project's coding style and best practices.
-🚀 Commit your changes (`git commit -m 'feat: Add new amazing feature'`).
-⬆️ Push to the branch (`git push origin feature/AmazingFeature`).
-📝 Open a pull request describing your changes and their benefits.
+*   Fork the repository.
+*   Create a new branch for your feature or bug fix: `git checkout -b feature/your-feature-name`.
+*   Make your changes and ensure tests pass.
+*   Write clear, concise commit messages.
+*   Push your branch and open a pull request.
+*   Describe your changes in detail and include any relevant information.
 
 ## License
 This project is open-sourced. Details will be provided in a dedicated `LICENSE` file.
+
+## Author Info
+**Odafe Peter**
+*   Portfolio: [My Portfolio Website](https://www.umunufolio.online)
 
