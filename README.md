@@ -42,29 +42,28 @@ pip install Django djangorestframework djangorestframework-simplejwt django-cors
 ```bash
 python manage.py migrate
 ```
-
-🔐  Create a superuser (admin account) automatically using a script:
-This will generate a default admin account using credentials stored in your .env file.
-Create a .env file in the project root by copying .env.example, then replace the values with your desired admin account credentials.
-
-✅ Ensure your .env includes:
-```ini
-DJANGO_SUPERUSER_EMAIL=admin@example.com
-DJANGO_SUPERUSER_PASSWORD=Testing_123
-DJANGO_SUPERUSER_FIRST_NAME=Admin
-DJANGO_SUPERUSER_LAST_NAME=User
+**Create a Superuser (Admin Account)**:
+This project includes a custom management command to create a superuser using environment variables.
+Set the following environment variables (e.g., in a `.env` file):
 ```
-
+DJANGO_SUPERUSER_EMAIL=your_admin_email@example.com
+DJANGO_SUPERUSER_PASSWORD=your_admin_password
+DJANGO_SUPERUSER_FIRSTNAME=Admin
+DJANGO_SUPERUSER_LASTNAME=User
+```
 Then run:
 ```bash
-python manage.py runscript createsuperuser
+python manage.py createsuper
 ```
-
-▶️ Finally, start the Django development server:
+Alternatively, for interactive creation:
+```bash
+python manage.py createsuperuser
+```
+Follow the prompts.
+**Run the Development Server**:
 ```bash
 python manage.py runserver
 ```
-The API will be accessible at `http://127.0.0.1:8000/`.
 
 ### Environment Variables
 The following environment variables are required for proper application functionality. It is recommended to use a `.env` file for local development.
@@ -115,6 +114,34 @@ Authenticates a user and provides JWT tokens.
 - 400 Bad Request: Missing `email` or `password`.
 - 401 Unauthorized: Invalid credentials.
 - 403 Forbidden: User account is disabled.
+
+#### POST /api/admin-login/
+Authenticates an admin user using their email and password. Only users with the "admin" role can successfully log in through this route. Returns JWT tokens upon successful authentication.
+**Request**:
+```json
+{
+  "email": "admin@example.com",
+  "password": "YourAdminPassword123"
+}
+```
+**Response**:
+```json
+{
+  "refresh": "your-refresh-token",
+  "access": "your-access-token",
+  "user": {
+    "email": "admin@example.com",
+    "role": "admin",
+    "first_name": "Admin",
+    "last_name": "User"
+  }
+}
+```
+**Errors**:
+- `400 Bad Request`: Typically due to missing credentials or invalid input format.
+- `401 Unauthorized`: Indicates incorrect email or password, or if the user account is disabled.
+- `403 Forbidden`: Access denied if the user is not an admin..
+
 
 #### POST /api/auth/token/refresh/
 Obtains a new access token using a refresh token.
@@ -202,7 +229,6 @@ Retrieves details of the authenticated user.
   "is_verified": true,
   "username": "john_doe",
   "role": "student",
-  "cohort": "Spring 2024"
 }
 ```
 **Errors**:
@@ -287,7 +313,6 @@ Lists all users.
     "is_verified": true,
     "username": "john_doe",
     "role": "student",
-    "cohort": null
   },
   {
     "id": 2,
@@ -297,7 +322,6 @@ Lists all users.
     "is_verified": true,
     "username": "admin_user",
     "role": "admin",
-    "cohort": null
   }
 ]
 ```
@@ -319,7 +343,6 @@ Retrieves details for a specific user.
   "is_verified": true,
   "username": "john_doe",
   "role": "student",
-  "cohort": null
 }
 ```
 **Errors**:
@@ -335,7 +358,7 @@ Updates all details for a specific user.
 {
   "first_name": "Jonathan",
   "last_name": "Smith"
-  // Email, username, is_verified, role, cohort are read-only for non-admin updates
+  // Email, username, is_verified, role, are read-only for non-admin updates
 }
 ```
 **Response**: (Updated user object)
