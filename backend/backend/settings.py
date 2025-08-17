@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     # REST Framework & Auth
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
-    'rest_framework.authtoken',
+    # 'rest_framework.authtoken',
 
     # CORS
     'corsheaders',
@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'dj_rest_auth',
     'dj_rest_auth.registration',
 ]
+TOKEN_MODEL = None
 
 SITE_ID = 1
 
@@ -107,7 +108,6 @@ AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
 )
-
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -143,9 +143,10 @@ FRONTEND_URL = "http://localhost:5173"   #Vite Endpoint, please change as expect
 
 SITE_URL = "http://127.0.0.1:8000" 
 
-
-# dj-rest-auth custom serializer
 REST_AUTH  = {
+    'USE_JWT': True,
+    'JWT_AUTH_COOKIE': None, 
+    'TOKEN_MODEL': None,
     'REGISTER_SERIALIZER': 'users.serializers.CustomRegisterSerializer',
     'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
     'PASSWORD_RESET_CONFIRM_URL': f'{FRONTEND_URL}/reset-password/{{uid}}/{{token}}/',
