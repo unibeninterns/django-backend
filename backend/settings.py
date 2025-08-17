@@ -15,12 +15,16 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_extensions',
 
     'django.contrib.sites', 
 
     # App
     'users',
     'module',
+    'progresse',
+    'payments',
+    'assessments',
 
     # REST Framework & Auth
     'rest_framework',
@@ -142,7 +146,7 @@ SITE_URL = "http://127.0.0.1:8000"
 
 
 # dj-rest-auth custom serializer
-REST_AUTH  = {
+REST_AUTH = {
     'REGISTER_SERIALIZER': 'users.serializers.CustomRegisterSerializer',
     'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
     'PASSWORD_RESET_CONFIRM_URL': f'{FRONTEND_URL}/reset-password/{{uid}}/{{token}}/',

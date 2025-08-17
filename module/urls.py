@@ -16,6 +16,7 @@ router.register(r'enrollments', EnrollmentViewSet)
 router.register(r'capstone-projects', CapstoneProjectViewSet)
 router.register(r'live-sessions', LiveSessionViewSet)
 
+
 urlpatterns = [
     path('', include(router.urls)),
 ]

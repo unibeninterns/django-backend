@@ -8,6 +8,9 @@ from users.views import GoogleLogin
 api_routes = [
     path('', include('users.urls')),
     path('module/', include('module.urls')),
+    path('assessments/', include('assessments.urls')),
+    path('progresse/', include('progresse.urls')),
+    path('payments/', include('payments.urls')),
 ]
 
 urlpatterns = [

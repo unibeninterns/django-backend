@@ -13,8 +13,6 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'first_name', 'last_name', 'email', 'is_verified', 'username', 'role', 'cohort']
         read_only_fields = ['username', 'is_verified', 'role', 'cohort']
 
-
-
 class CustomRegisterSerializer(RegisterSerializer):
     _has_phone_field = False
     username = None 
