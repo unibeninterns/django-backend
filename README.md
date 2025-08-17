@@ -105,6 +105,7 @@ Authenticates a user and provides JWT tokens.
   "user": {
     "pk": 1,
     "email": "user@example.com",
+    "role": "student",
     "first_name": "John",
     "last_name": "Doe"
   }
