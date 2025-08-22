@@ -136,7 +136,7 @@ ACCOUNT_CONFIRM_EMAIL_ON_GET = True
 
 
 # Frontend URL
-FRONTEND_URL = "http://localhost:5173"   #Vite Endpoint, please change as expected
+FRONTEND_URL = "http://localhost:3000"   #Vite Endpoint, please change as expected
 
 SITE_URL = "http://127.0.0.1:8000" 
 
