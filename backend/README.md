@@ -188,7 +188,8 @@ Authenticates an admin user using their email and password. Only users with the 
     "email": "admin@example.com",
     "role": "admin",
     "first_name": "Admin",
-    "last_name": "User"
+    "last_name": "User",
+    "cohort": null
   }
 }
 ```
@@ -373,7 +374,9 @@ GET /api/accounts/users/
     "last_name": "Doe",
     "email": "john.doe@example.com",
     "is_verified": true,
-    "username": "john_doe"
+    "username": "john_doe",
+    "role": "admin",
+    "cohort": null
   }
 ]
 ```

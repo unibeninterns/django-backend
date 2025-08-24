@@ -60,6 +60,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_verified = models.BooleanField(default=False)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='student')
+    cohort = models.CharField(max_length=50, blank=True, null=True)
 
     objects = CustomAccountManager()
 
