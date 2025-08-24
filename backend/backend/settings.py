@@ -4,6 +4,10 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+# Flutterwave Configuration
+FLUTTERWAVE_PUBLIC_KEY="FLWPUBK_TEST-c09f7351cfec053570d355ea3ab0686f-X"
+FLUTTERWAVE_SECRET_KEY="FLWSECK_TEST-ccd4f142f461bfd6aae76d12de94c4e3-X"
+FLUTTERWAVE_WEBHOOK_SECRET="Drid@1234567890"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -24,6 +28,9 @@ INSTALLED_APPS = [
     # App
     'users',
     'module',
+    'payments',
+
+    'jsoneditor',
 
     # REST Framework & Auth
     'rest_framework',
