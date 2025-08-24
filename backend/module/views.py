@@ -92,37 +92,37 @@ class AnswerViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated(), IsOwnerOrAdmin()]
         return [AllowAny()]
 
-class PaymentViewSet(viewsets.ModelViewSet):
-    queryset = Payment.objects.all()
-    serializer_class = PaymentSerializer
+# class PaymentViewSet(viewsets.ModelViewSet):
+#     queryset = Payment.objects.all()
+#     serializer_class = PaymentSerializer
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+#     def perform_create(self, serializer):
+#         serializer.save(user=self.request.user)
 
-    def get_permissions(self):
-        if self.action in ['create']:
-            return [IsStudent()]
-        elif self.action in ['list']:
-            return [IsAuthenticated()]
-        elif self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(), IsOwnerOrAdmin()]
-        return [AllowAny()]
+#     def get_permissions(self):
+#         if self.action in ['create']:
+#             return [IsStudent()]
+#         elif self.action in ['list']:
+#             return [IsAuthenticated()]
+#         elif self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
+#             return [IsAuthenticated(), IsOwnerOrAdmin()]
+#         return [AllowAny()]
 
-class EnrollmentViewSet(viewsets.ModelViewSet):
-    queryset = Enrollment.objects.all()
-    serializer_class = EnrollmentSerializer
+# class EnrollmentViewSet(viewsets.ModelViewSet):
+#     queryset = Enrollment.objects.all()
+#     serializer_class = EnrollmentSerializer
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+#     def perform_create(self, serializer):
+#         serializer.save(user=self.request.user)
 
-    def get_permissions(self):
-        if self.action in ['create']:
-            return [IsStudent()]
-        elif self.action in ['list']:
-            return [IsAuthenticated()]
-        elif self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(), IsOwnerOrAdmin()]
-        return [AllowAny()]
+#     def get_permissions(self):
+#         if self.action in ['create']:
+#             return [IsStudent()]
+#         elif self.action in ['list']:
+#             return [IsAuthenticated()]
+#         elif self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
+#             return [IsAuthenticated(), IsOwnerOrAdmin()]
+#         return [AllowAny()]
 
 class CapstoneProjectViewSet(viewsets.ModelViewSet):
     queryset = CapstoneProject.objects.all()

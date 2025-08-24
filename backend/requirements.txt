@@ -19,3 +19,5 @@ requests==2.32.4
 sqlparse==0.5.3
 tzdata==2025.2
 urllib3==2.5.0
+# New update (payments)
+requests>=2.25.0
