@@ -19,9 +19,6 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'first_name', 'last_name', 'email', 'is_verified', 'username', 'role', 'cohort']
         read_only_fields = ['username', 'is_verified', 'role', 'cohort']
 
-        fields = ['id', 'first_name', 'last_name', 'email', 'role', 'is_verified', 'username']
-        read_only_fields = ['username', 'is_verified', 'role']
-
 
 
 class CustomRegisterSerializer(RegisterSerializer):
