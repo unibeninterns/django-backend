@@ -180,7 +180,8 @@ Refreshes the JWT access token using a valid refresh token. This endpoint does n
 **Response**:
 ```json
 {
-  "access": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni..."
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni...",
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni..."
 }
 ```
 **Errors**:
