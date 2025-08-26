@@ -154,6 +154,7 @@ REST_AUTH  = {
     'USE_JWT': True,
     'JWT_AUTH_COOKIE': None, 
     'TOKEN_MODEL': None,
+    'JWT_AUTH_HTTPONLY': False,
     'REGISTER_SERIALIZER': 'users.serializers.CustomRegisterSerializer',
     'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
     'PASSWORD_RESET_CONFIRM_URL': f'{FRONTEND_URL}/reset-password/{{uid}}/{{token}}/',

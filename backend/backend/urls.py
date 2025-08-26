@@ -3,6 +3,7 @@ from django.urls import path, include
 from dj_rest_auth.registration.views import SocialLoginView
 from django.conf import settings
 from users.views import GoogleLogin 
+from rest_framework_simplejwt.views import TokenRefreshView
 
 
 api_routes = [
@@ -13,6 +14,7 @@ api_routes = [
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(api_routes)),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     # dj-rest-auth endpoints
     path('api/auth/', include('dj_rest_auth.urls')),
