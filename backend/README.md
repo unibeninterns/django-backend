@@ -169,6 +169,24 @@ Authenticates a user using their email and password, returning JWT access and re
 - `400 Bad Request`: Typically due to missing credentials or invalid input format.
 - `401 Unauthorized`: Indicates incorrect email or password, or if the user account is disabled.
 
+### POST api/token/refresh/
+Refreshes the JWT access token using a valid refresh token. This endpoint does not return a new refresh token unless you have rotation enabled.
+**Request**:
+```json
+{
+  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+**Response**:
+```json
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni..."
+}
+```
+**Errors**:
+- `400 Bad Request`: The refresh token is missing, expired, or malformed.
+- `401 Unauthorized`: The refresh token is invalid or blacklisted (e.g., if BLACKLIST_AFTER_ROTATION is enabled and it's already used).
+- `401 Forbidden`: The user associated with the token is inactive or deleted.
 
 #### POST /api/admin-login/
 Authenticates an admin user using their email and password. Only users with the "admin" role can successfully log in through this route. Returns JWT tokens upon successful authentication.
