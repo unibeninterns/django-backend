@@ -41,9 +41,23 @@ pip install Django djangorestframework djangorestframework-simplejwt django-cors
 python manage.py migrate
 ```
 
-🔐 Create a superuser account to access the Django admin panel:
+🔐  Create a superuser (admin account) automatically using a script:
+This will generate a default admin account using credentials stored in your .env file.
+
+# .env.example (DO NOT COMMIT your real .env)
+💡 Create a .env file in the project root by copying .env.example, then replace the values with your desired admin account credentials.
+
+✅ Ensure your .env includes:
+```ini
+DJANGO_SUPERUSER_EMAIL=admin@example.com
+DJANGO_SUPERUSER_PASSWORD=Testing_123
+DJANGO_SUPERUSER_FIRST_NAME=Admin
+DJANGO_SUPERUSER_LAST_NAME=User
+```
+
+Then run:
 ```bash
-python manage.py createsuperuser
+python manage.py runscript createsuperuser
 ```
 
 ▶️ Finally, start the Django development server:
@@ -154,6 +168,56 @@ Authenticates a user using their email and password, returning JWT access and re
 **Errors**:
 - `400 Bad Request`: Typically due to missing credentials or invalid input format.
 - `401 Unauthorized`: Indicates incorrect email or password, or if the user account is disabled.
+
+### POST api/token/refresh/
+Refreshes the JWT access token using a valid refresh token. This endpoint does not return a new refresh token unless you have rotation enabled.
+**Request**:
+```json
+{
+  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+**Response**:
+```json
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni...",
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1Ni..."
+}
+```
+**Errors**:
+- `400 Bad Request`: The refresh token is missing, expired, or malformed.
+- `401 Unauthorized`: The refresh token is invalid or blacklisted (e.g., if BLACKLIST_AFTER_ROTATION is enabled and it's already used).
+- `401 Forbidden`: The user associated with the token is inactive or deleted.
+
+#### POST /api/admin-login/
+Authenticates an admin user using their email and password. Only users with the "admin" role can successfully log in through this route. Returns JWT tokens upon successful authentication.
+**Request**:
+```json
+{
+  "email": "admin@example.com",
+  "password": "YourAdminPassword123"
+}
+```
+**Response**:
+```json
+{
+  "refresh": "your-refresh-token",
+  "access": "your-access-token",
+  "user": {
+    "email": "admin@example.com",
+    "role": "admin",
+    "first_name": "Admin",
+    "last_name": "User",
+    "cohort": null
+  }
+}
+```
+**Errors**:
+- `400 Bad Request`: Typically due to missing credentials or invalid input format.
+- `401 Unauthorized`: Indicates incorrect email or password, or if the user account is disabled.
+- `403 Forbidden`: Access denied if the user is not an admin..
+
+
 
 #### POST /api/auth/logout/
 Logs out the authenticated user by blacklisting their refresh token, invalidating current sessions.
@@ -329,7 +393,9 @@ GET /api/accounts/users/
     "last_name": "Doe",
     "email": "john.doe@example.com",
     "is_verified": true,
-    "username": "john_doe"
+    "username": "john_doe",
+    "role": "admin",
+    "cohort": null
   }
 ]
 ```
@@ -474,8 +540,4 @@ We welcome contributions to enhance this project! If you're looking to contribut
 
 ## License
 This project is open-sourced. Details will be provided in a dedicated `LICENSE` file.
-
-## Author Info
-**Odafe Peter**
-*   Portfolio: [My Portfolio Website](https://www.umunufolio.online)
 
