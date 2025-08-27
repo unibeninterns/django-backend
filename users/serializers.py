@@ -61,49 +61,41 @@ class CustomRegisterSerializer(RegisterSerializer):
         return user
 
 class CustomLoginSerializer(LoginSerializer):
-    username = None  # Remove username field
+    username = None  # Disable username field
     email = serializers.EmailField(required=True)
     password = serializers.CharField(style={'input_type': 'password'})
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Remove username field completely
-        if 'username' in self.fields:
-            del self.fields['username']
-    
-    def authenticate(self, **kwargs):
-        return authenticate(self.context['request'], **kwargs)
-
-    def _validate_email(self, email, password):
-        if email and password:
-            user = self.authenticate(email=email, password=password)
-            if not user:
-                msg = _('Unable to log in with provided credentials.')
-                raise serializers.ValidationError(msg, code='authorization')
-        else:
-            msg = _('Must include "email" and "password".')
-            raise serializers.ValidationError(msg, code='authorization')
-
-        return user
+        self.fields.pop('username', None)  # Ensure username is removed
 
     def validate(self, attrs):
         email = attrs.get('email')
         password = attrs.get('password')
 
-        if email and password:
-            user = self._validate_email(email, password)
-            
-            # Did we get back an active user?
-            if user:
-                if not user.is_active:
-                    msg = _('User account is disabled.')
-                    raise serializers.ValidationError(msg, code='authorization')
-            else:
-                msg = _('Unable to log in with provided credentials.')
-                raise serializers.ValidationError(msg, code='authorization')
-        else:
-            msg = _('Must include "email" and "password".')
-            raise serializers.ValidationError(msg, code='authorization')
+        if not email or not password:
+            raise serializers.ValidationError(
+                _('Must include "email" and "password".'),
+                code='authorization'
+            )
+
+        user = authenticate(
+            request=self.context.get('request'),
+            email=email,
+            password=password
+        )
+
+        if not user:
+            raise serializers.ValidationError(
+                _('Unable to log in with provided credentials.'),
+                code='authorization'
+            )
+
+        if not user.is_active:
+            raise serializers.ValidationError(
+                _('User account is disabled.'),
+                code='authorization'
+            )
 
         attrs['user'] = user
         return attrs

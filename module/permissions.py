@@ -58,7 +58,6 @@ class CanAccessContent(permissions.BasePermission):
 
         return f"Content not accessible in {state.value} state"
 
-
 class CanStartContent(permissions.BasePermission):
     """Permission for starting content."""
     def has_object_permission(self, request, view, obj):

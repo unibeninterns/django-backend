@@ -151,6 +151,10 @@ REST_AUTH = {
     'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
     'PASSWORD_RESET_CONFIRM_URL': f'{FRONTEND_URL}/reset-password/{{uid}}/{{token}}/',
     'OLD_PASSWORD_FIELD_ENABLED': True,
+    'SIGNUP_FIELDS': {
+            'username': {'required': False},
+            'email': {'required': True},
+        },
 }
 
 # Email backend for development
