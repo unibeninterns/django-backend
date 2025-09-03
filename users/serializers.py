@@ -7,6 +7,10 @@ from django.contrib.auth import authenticate
 from django.utils.translation import gettext_lazy as _
 
 
+class AdminLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField()
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
@@ -15,7 +19,7 @@ class UserSerializer(serializers.ModelSerializer):
 
 class CustomRegisterSerializer(RegisterSerializer):
     _has_phone_field = False
-    username = None 
+    username = None
 
     first_name = serializers.CharField(required=True)
     last_name = serializers.CharField(required=True)
@@ -28,7 +32,6 @@ class CustomRegisterSerializer(RegisterSerializer):
             "last_name",
             "password",
         ]
-
 
     def validate_email(self, value):
         if CustomUser.objects.filter(email=value).exists():
@@ -61,41 +64,49 @@ class CustomRegisterSerializer(RegisterSerializer):
         return user
 
 class CustomLoginSerializer(LoginSerializer):
-    username = None  # Disable username field
+    username = None
     email = serializers.EmailField(required=True)
     password = serializers.CharField(style={'input_type': 'password'})
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields.pop('username', None)  # Ensure username is removed
+        # Remove username field completely
+        if 'username' in self.fields:
+            del self.fields['username']
+
+    def authenticate(self, **kwargs):
+        return authenticate(self.context['request'], **kwargs)
+
+    def _validate_email(self, email, password):
+        if email and password:
+            user = self.authenticate(email=email, password=password)
+            if not user:
+                msg = _('Unable to log in with provided credentials.')
+                raise serializers.ValidationError(msg, code='authorization')
+        else:
+            msg = _('Must include "email" and "password".')
+            raise serializers.ValidationError(msg, code='authorization')
+
+        return user
 
     def validate(self, attrs):
         email = attrs.get('email')
         password = attrs.get('password')
 
-        if not email or not password:
-            raise serializers.ValidationError(
-                _('Must include "email" and "password".'),
-                code='authorization'
-            )
+        if email and password:
+            user = self._validate_email(email, password)
 
-        user = authenticate(
-            request=self.context.get('request'),
-            email=email,
-            password=password
-        )
-
-        if not user:
-            raise serializers.ValidationError(
-                _('Unable to log in with provided credentials.'),
-                code='authorization'
-            )
-
-        if not user.is_active:
-            raise serializers.ValidationError(
-                _('User account is disabled.'),
-                code='authorization'
-            )
+            # Did we get back an active user?
+            if user:
+                if not user.is_active:
+                    msg = _('User account is disabled.')
+                    raise serializers.ValidationError(msg, code='authorization')
+            else:
+                msg = _('Unable to log in with provided credentials.')
+                raise serializers.ValidationError(msg, code='authorization')
+        else:
+            msg = _('Must include "email" and "password".')
+            raise serializers.ValidationError(msg, code='authorization')
 
         attrs['user'] = user
         return attrs

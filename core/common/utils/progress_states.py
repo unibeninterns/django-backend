@@ -19,8 +19,11 @@ class ContentState(Enum):
 
     @classmethod
     def startable_states(cls):
-        """States from which content can be started."""
-        return [cls.AVAILABLE]
+        """
+        States from which content can be started.
+        Added LOCKED and FAILED to allow starting and retrying a quiz.
+        """
+        return {cls.AVAILABLE, cls.LOCKED, cls.FAILED}
 
     @classmethod
     def completable_states(cls):
