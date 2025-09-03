@@ -1,7 +1,12 @@
 from rest_framework import permissions
 from core.common.utils import progress
 from core.common.utils.progress_states import ContentState
+from progresse.models import QuizProgress
 from module.models import *
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class IsAdminUser(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -9,6 +14,7 @@ class IsAdminUser(permissions.BasePermission):
 
 class IsOwnerOrAdmin(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
+        print(f"Checking permission for user: {request.user.email}, obj.user: {getattr(obj, 'user', None)}")
         if request.user.role == 'admin':
             return True
         if hasattr(obj, 'student'):
@@ -19,7 +25,14 @@ class IsOwnerOrAdmin(permissions.BasePermission):
 
 class IsStudent(permissions.BasePermission):
     def has_permission(self, request, view):
-        return request.user and request.user.is_authenticated and request.user.role == 'student'
+        print(f"[IsStudent] has_permission? user={request.user!r}")
+        allowed = (
+                request.user.is_authenticated and
+                isinstance(request.user, CustomUser) and
+                request.user.role == 'student'
+        )
+        print(f"[IsStudent] → {allowed}")
+        return allowed
 
 class CanAccessContent(permissions.BasePermission):
     """Base permission for content access using state machine."""
@@ -30,7 +43,19 @@ class CanAccessContent(permissions.BasePermission):
         content_type = self._get_content_type(obj)
         content_id = obj.id
 
+        logger.debug(f"Using get_content_state from: {progress.get_content_state.__module__}")
+
+        # Debug: what arguments?
+        logger.debug(f"Checking permission for user={request.user} "
+                     f"type={content_type} id={content_id}")
+
+        state = progress.get_content_state(request.user, content_type, content_id)
+
+        # Debug: what state was returned?
+        logger.debug(f"→ get_content_state returned {state}")
+
         current_state = progress.get_content_state(request.user, content_type, content_id)
+        # print(f"Content Type: {content_type}, State: {current_state.value}")
 
         if current_state not in ContentState.accessible_states():
             self.message = self._get_error_message(request.user, obj, current_state)
@@ -40,7 +65,13 @@ class CanAccessContent(permissions.BasePermission):
 
     def _get_content_type(self, obj):
         """Determine content type from model instance."""
+        # for ContentItem, use the declared `type` (video, article, etc.)
+        if isinstance(obj, ContentItem):
+            return obj.type
+
+        # fallback to class name for other models (Lesson, Module, Quiz…)
         return obj.__class__.__name__.lower()
+
 
     def _get_error_message(self, user, obj, state):
         """Get specific error message based on content and state."""
@@ -59,37 +90,41 @@ class CanAccessContent(permissions.BasePermission):
         return f"Content not accessible in {state.value} state"
 
 class CanStartContent(permissions.BasePermission):
-    """Permission for starting content."""
+    def has_permission(self, request, view):
+        if view.action == 'start_quiz' and request.method == 'POST':
+            return True
+        return True
+
     def has_object_permission(self, request, view, obj):
-        if not hasattr(obj, 'id'):
-            self.message = f"Object {obj} does not have an 'id' attribute"
-            return False
+        if view.action == 'start_quiz' and request.method == 'POST':
+            user = request.user
+            try:
+                progress_obj = QuizProgress.objects.get(student=user, quiz=obj)
+                if progress_obj.attempts >= obj.max_attempts:
+                    self.message = "Maximum attempts reached."
+                    return False
+            except QuizProgress.DoesNotExist:
+                return True
+            return True
+
         content_type = self._get_content_type(obj)
         current_state = progress.get_content_state(request.user, content_type, obj.id)
-
         if current_state not in ContentState.startable_states():
             self.message = f"Cannot start content from {current_state.value} state"
             return False
-
         return True
 
     def _get_content_type(self, obj):
         return obj.__class__.__name__.lower()
 
 class CanCompleteContent(permissions.BasePermission):
-    """Permission for completing content."""
+    """Only ensure the user is authenticated and has a QuizProgress record."""
+
+    def has_permission(self, request, view):
+        return request.user.is_authenticated
+
     def has_object_permission(self, request, view, obj):
-        if not hasattr(obj, 'id'):
-            self.message = f"Object {obj} does not have an 'id' attribute"
-            return False
-        content_type = self._get_content_type(obj)
-        current_state = progress.get_content_state(request.user, content_type, obj.id)
-
-        if current_state not in ContentState.completable_states():
-            self.message = f"Cannot complete content from {current_state.value} state"
-            return False
-
-        return True
+        return QuizProgress.objects.filter(student=request.user, quiz=obj).exists()
 
     def _get_content_type(self, obj):
         return obj.__class__.__name__.lower()

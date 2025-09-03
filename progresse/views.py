@@ -4,6 +4,11 @@ from module.permissions import IsAdminUser, IsStudent, IsOwnerOrAdmin
 from users.models import CustomUser
 from progresse.models import *
 from progresse.serializers import *
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.db.models.functions import ExtractWeek, ExtractYear
+from django.db.models import Avg
+
 
 class ContentProgressViewSet(viewsets.ModelViewSet):
     queryset = ContentProgress.objects.all()
@@ -66,6 +71,21 @@ class ModuleCompletionViewSet(viewsets.ModelViewSet):
         elif user.is_authenticated and isinstance(user, CustomUser) and user.role == 'admin':
             return ModuleCompletion.objects.all()
         return ModuleCompletion.objects.none()
+
+    @action(detail=False, methods=['get'])
+    def weekly_completion(self, request):
+        """Return weekly average completion stats grouped by module."""
+        qs = self.get_queryset().filter(is_completed=True)
+        data = (
+            qs.annotate(
+                week=ExtractWeek("completed_at"),
+                year=ExtractYear("completed_at")
+            )
+            .values("week", "year", "module__title")
+            .annotate(avg_completion=Avg("completion_percentage"))
+            .order_by("-year", "-week")
+        )
+        return Response(data)
 
 
 class QuizProgressViewSet(viewsets.ModelViewSet):

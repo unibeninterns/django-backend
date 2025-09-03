@@ -3,7 +3,9 @@ from django.conf import settings
 from django.utils import timezone
 from core.common.utils.progress_states import ContentState
 from django.db.models import UniqueConstraint
-
+from datetime import timedelta
+from django.db.models import Avg
+from django.db.models.functions import ExtractWeek, ExtractYear
 
 class ContentProgress(models.Model):
     """Individual content item progresse with state tracking."""
@@ -19,7 +21,7 @@ class ContentProgress(models.Model):
     # Existing fields
     is_completed = models.BooleanField(default=False)
     progress_percentage = models.FloatField(default=0.0)
-    time_spent = models.IntegerField(default=0, help_text="Time spent in seconds")
+    time_spent = models.DurationField(default=timedelta(0)) # New field for time spent
     last_accessed = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -294,7 +296,6 @@ class QuizProgress(models.Model):
             self.started_at = timezone.now()
         elif new_state == ContentState.COMPLETED:
             self.completed_at = timezone.now()
-            # Check if passed based on score
             score = kwargs.get('score', 0)
             passing_score = kwargs.get('passing_score', 70)
             self.is_passed = score >= passing_score
@@ -306,18 +307,26 @@ class QuizProgress(models.Model):
             self.latest_score = kwargs['score']
             self.best_score = max(self.best_score, self.latest_score)
 
+        # Keep completion_data but DO NOT increment attempts here
         if 'attempt_data' in kwargs:
-            self.attempts += 1
             self.completion_data.update(kwargs)
 
         self.save(
-            update_fields=['state', 'started_at', 'completed_at', 'attempts', 'best_score', 'latest_score', 'is_passed',
-                           'completion_data'])
+            update_fields=[
+                'state',
+                'started_at',
+                'completed_at',
+                'best_score',
+                'latest_score',
+                'is_passed',
+                'completion_data'
+            ]
+        )
 
     def _is_valid_transition(self, from_state: ContentState, to_state: ContentState) -> bool:
         """Check if state transition is valid."""
         valid_transitions = {
-            ContentState.LOCKED: [ContentState.AVAILABLE],
+            ContentState.LOCKED: [ContentState.AVAILABLE, [ContentState.IN_PROGRESS]],
             ContentState.AVAILABLE: [ContentState.IN_PROGRESS],
             ContentState.IN_PROGRESS: [ContentState.COMPLETED, ContentState.FAILED],
             ContentState.FAILED: [ContentState.IN_PROGRESS],  # Allow retries

@@ -2,6 +2,9 @@ from django.db import models
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models import Q, CheckConstraint, UniqueConstraint
+from users.models import CustomUser
+from django.core.exceptions import ValidationError
+
 
 class Course(models.Model):
     title = models.CharField(max_length=200)
@@ -33,14 +36,23 @@ class Module(models.Model):
     requires_project_submission = models.BooleanField(default=False)
     requires_live_session_attendance = models.BooleanField(default=False)
 
-    constraints = [
-        UniqueConstraint(fields=['course', 'order'], name='unique_course_order')
-    ]
-    ordering = ['course', 'order']
-    verbose_name = "Module"
-    verbose_name_plural = "Modules"
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['course', 'order'], name='unique_course_order')
+        ]
+        ordering = ['course', 'order']
+        verbose_name = "Module"
+        verbose_name_plural = "Modules"
 
-    # suggestions say I should use
+    def save(self, *args, **kwargs):
+        # If order is not set, assign the next number
+        if self.order is None:
+            last_order = Module.objects.filter(course=self.course).aggregate(
+                models.Max('order')
+            )['order__max']
+            self.order = 1 if last_order is None else last_order + 1
+
+        super().save(*args, **kwargs)
 
     def get_previous_module(self):
         """Get the module that comes before this one."""
@@ -57,7 +69,7 @@ class Module(models.Model):
         ).order_by('order').first()
 
     def __str__(self):
-        return f"{self.title} |Course: {self.order}| (Week {self.week_number})"
+        return f"{self.title} (Course: {self.course.title}, Order: {self.order}, Week {self.week_number})"
 
 class Lesson(models.Model):
     id = models.AutoField(primary_key=True)
@@ -93,6 +105,16 @@ class Lesson(models.Model):
     def __str__(self):
         return f"Week: {self.module.week_number}| (Title {self.title})"
 
+class LessonNote(models.Model):
+    student = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='lesson_notes')
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='notes')
+    note = models.TextField()  # Individual note content
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.student.email} - {self.lesson.title} - {self.created_at}"
+
 class ContentItem(models.Model):
     TYPE_CHOICES = (
         ('video', 'Video'),
@@ -114,8 +136,13 @@ class ContentItem(models.Model):
 
 class Quiz(models.Model):
     id = models.AutoField(primary_key=True)
-    module = models.ForeignKey('module.Module', on_delete=models.CASCADE, related_name='quizzes')
-    lesson = models.ForeignKey('module.Lesson', on_delete=models.CASCADE, related_name='quizzes', null=True, blank=True)
+    #  change the null and blank fields both to False in production
+    lesson = models.ForeignKey(
+        Lesson, on_delete=models.CASCADE, null=True, blank=True, related_name="quizzes"
+    )
+    module = models.ForeignKey(
+        Module, on_delete=models.CASCADE, null=True, blank=True, related_name="quizzes"
+    )
     title = models.CharField(max_length=200)
 
     # Quiz requirements
@@ -138,21 +165,31 @@ class Quiz(models.Model):
     is_required_for_module = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
-        # Validate associations: Quiz must be associated with exactly one of lesson or module
-        associations = [self.lesson, self.module]
-        if sum(1 for assoc in associations if assoc) != 1:
-            raise ValueError("A quiz must be associated with exactly one of: lesson, module.")
+        # Ensure quiz is linked to either lesson OR module (not both)
+        if self.lesson and self.module:
+            raise ValidationError("A quiz can only be linked to either a lesson OR a module, not both.")
+        if not self.lesson and not self.module:
+            raise ValidationError("A quiz must be linked to either a lesson OR a module.")
 
-        # Additional validation for new fields
-        if self.passing_score < 0.0 or self.passing_score > 100.0:
-            raise ValueError("Passing score must be between 0.0 and 100.0.")
-        if self.max_attempts < 1:
-            raise ValueError("Maximum attempts must be at least 1.")
+        # Fix: only include associations that actually exist
+        associations = [a for a in [self.lesson, self.module] if a is not None]
+
+        for assoc in associations:
+            if hasattr(assoc, "course") and assoc.course != getattr(self, "course", None):
+                self.course = assoc.course  # keep course consistent
+
+        # Validate passing_score and max_attempts
+        if not (0 <= self.passing_score <= 100):
+            raise ValidationError("Passing score must be between 0 and 100.")
+        if not (1 <= self.max_attempts <= 3):
+            raise ValidationError("Max attempts must be between 1 and 3.")
 
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Quiz: {self.title} for Lesson {self.lesson.order if self.lesson else 'N/A'} | Module {self.module.week_number if self.module else 'N/A'}"
+        lesson_order = self.lesson.order if self.lesson else 'N/A'
+        module_week = self.module.week_number if self.module else 'N/A'
+        return f"Quiz: {self.title} for Lesson {lesson_order} | Module {module_week}"
 
     class Meta:
         verbose_name = "Quiz"
@@ -204,27 +241,6 @@ class Answer(models.Model):
 
     def __str__(self):
         return f"Answer to {self.question.text}"
-
-class Payment(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    payment_option = models.CharField(max_length=50) #might set this to a choice field
-    transaction_id = models.CharField(max_length=100)
-    status = models.CharField(max_length=20, choices=(('pending', 'Pending'), ('completed', 'Completed'), ('failed', 'Failed')))
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.user.username} - {self.payment_option}"
-
-class Enrollment(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    course = models.ForeignKey(Course, on_delete=models.CASCADE)
-    payment = models.OneToOneField(Payment, on_delete=models.SET_NULL, null=True, blank=True)
-    enrolled_at = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(max_length=20, choices=(('active', 'Active'), ('completed', 'Completed'), ('dropped', 'Dropped')))
-
-    def __str__(self):
-        return f"{self.user.username} - {self.course.title}"
 
 class CapstoneProject(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -299,3 +315,66 @@ class LiveSession(models.Model):
 
     def __str__(self):
         return f"Live session held in  Week: {self.module.week_number} for Module: {self.module.order}"
+
+class UserSettings(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='settings')
+    notifications_enabled = models.BooleanField(default=True)  # Example setting
+    theme = models.CharField(max_length=20, choices=[('light', 'Light'), ('dark', 'Dark')], default='light')  # Example setting
+    email_alerts = models.BooleanField(default=True)  # Another example
+
+    def __str__(self):
+        return f"Settings for {self.user.email}"
+
+class ActivityLog(models.Model):
+    student = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='activity_logs')
+    activity_type = models.CharField(max_length=50, choices=[
+        ('completed_module', 'Completed Module'),
+        ('downloaded_item', 'Downloaded Item'),
+        ('started_quiz', 'Started Quiz'),
+        ('completed_quiz', 'Completed Quiz'),
+    ])  # Define common activity types
+    content_id = models.PositiveIntegerField(null=True, blank=True)  # Links to Module or ContentItem ID
+    content_type = models.CharField(max_length=20, choices=[
+        ('module', 'Module'),
+        ('content_item', 'ContentItem'),
+        ('quiz', 'Quiz'),
+    ], null=True, blank=True)  # Type of content
+    timestamp = models.DateTimeField(auto_now_add=True)
+    details = models.TextField(blank=True)  # Optional additional info (e.g., score)
+
+    class Meta:
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.student.email} - {self.activity_type} at {self.timestamp}"
+
+class CertificateRequest(models.Model):
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='certificaterequests')
+    course = models.ForeignKey(Course, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=[
+        ("pending", "Pending"),
+        ("completed", "Completed"),
+        ("rejected", "Rejected"),
+    ], default="pending")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.student} - {self.course} ({self.status})"
+
+class Announcement(models.Model):
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="announcements"
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.title
+

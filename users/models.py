@@ -13,33 +13,42 @@ class CustomAccountManager(BaseUserManager):
 
     def create_superuser(self, email, username=None, first_name=None, last_name=None, password=None, **other_fields):
         other_fields.setdefault('is_superuser', True)
-        other_fields.setdefault('is_staff', True)  
+        other_fields.setdefault('is_staff', True)
         other_fields.setdefault('is_active', True)
         other_fields.setdefault('is_verified', True)
         other_fields.setdefault('role', 'admin')
 
         if other_fields.get('is_superuser') is not True:
             raise ValueError(_('Superuser must be assigned to is_superuser=True'))
-        
-        if other_fields.get('is_staff') is not True: 
+
+        if other_fields.get('is_staff') is not True:
             raise ValueError(_('Superuser must be assigned to is_staff=True'))
 
         if not username:
             username = email.split('@')[0]
 
-        return self.create_user(email, username, first_name, last_name, password, **other_fields)
+        return self.create_user(
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            password=password,
+            username=username,  # ✅ explicitly keyword arg
+            **other_fields
+        )
 
-
-    def create_user(self, email, first_name="", last_name="", role="student", password=None, **extra_fields):
+    def create_user(self, email, first_name="", last_name="", password=None, username=None, **extra_fields):
         if not email:
             raise ValueError('Users must have an email address')
         email = self.normalize_email(email)
+
+        role = extra_fields.pop('role', 'student')
 
         user = self.model(
             email=email,
             first_name=first_name,
             last_name=last_name,
             role=role,
+            username=username or "",  # ✅ allow passing username
             **extra_fields
         )
 

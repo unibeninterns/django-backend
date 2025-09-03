@@ -403,12 +403,12 @@ def get_content_state(user, content_type: str, content_id: int):
             progress = ProjectProgress.objects.get(student=user, project_id=content_id)
         elif content_type == 'module':
             progress = ModuleCompletion.objects.get(student=user, module_id=content_id)
+        elif content_type == 'content_item':
+            progress = ContentProgress.objects.get(student=user, content_item_id=content_id)
+        elif content_type == 'content_item' or content_type == 'video':
+            progress = ContentProgress.objects.get(student=user, content_item_id=content_id)
         else:
-            progress = ContentProgress.objects.get(
-                student=user,
-                content_item__content_type=content_type,
-                content_item_id=content_id
-            )
+            raise ValueError(f"Unsupported content type: {content_type}")
         return ContentState(progress.state)
     except ObjectDoesNotExist:
         return ContentState.LOCKED

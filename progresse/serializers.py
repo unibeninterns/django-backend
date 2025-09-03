@@ -30,15 +30,19 @@ class ModuleCompletionSerializer(serializers.ModelSerializer):
             'started_at', 'completion_data'
         ]
 
-
 class QuizProgressSerializer(serializers.ModelSerializer):
+    current_state = serializers.CharField(source='state', read_only=True)
+
     class Meta:
         model = QuizProgress
         fields = [
             'id', 'student', 'quiz', 'state', 'attempts', 'best_score',
             'latest_score', 'is_passed', 'started_at', 'completed_at',
-            'last_accessed', 'completion_data'
+            'last_accessed', 'completion_data', 'current_state',
         ]
+        extra_kwargs = {
+            'state': {'write_only': True}  # optional: keep `state` for input only
+        }
 
 
 class ProgressEventSerializer(serializers.ModelSerializer):
