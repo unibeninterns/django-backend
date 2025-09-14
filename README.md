@@ -100,34 +100,34 @@ Registers a new user account with first name, last name, email, and password. An
 **Response**:
 ```json
 {
-  "pk": 1,
-  "email": "jane.doe@example.com",
-  "first_name": "Jane",
-  "last_name": "Doe"
+  "detail": "Registration successful. Please verify your email with the OTP."
 }
 ```
 **Errors**:
 - `400 Bad Request`: Occurs if the email already exists, or if provided data is invalid (e.g., missing fields, password validation failure).
 
-#### POST /api/auth/registration/verify-email/
-Verifies a user's email address using the confirmation key received via email.
+#### POST /api/auth/verify-otp/
+Verifies the 6-digit OTP sent to the user's email. Returns JWT tokens on success.
 **Request**:
 ```json
 {
-  "key": "your_email_confirmation_key_here"
+  "email": "newuser@example.com",
+  "otp_code": "123456"
 }
 ```
 **Response**:
 ```json
 {
-  "detail": "ok"
+  "refresh": "eyJ0eXAiOiJKV1QiLCJh...",
+  "access": "eyJ0eXAiOiJKV1QiLCJh..."
 }
 ```
 **Errors**:
-- `400 Bad Request`: Indicates an invalid or expired confirmation key.
+- `400 Bad Request`: Invalid or expired OTP, OTP not found or Missing email or code.
+- `404 Not Found`: User or OTP record not found.
 
-#### POST /api/auth/registration/resend-email/
-Requests a new email verification link to be sent to the specified email address.
+#### POST /api/auth/resend-otp/
+Resends a new 6-digit OTP to a user who hasn’t verified yet.
 **Request**:
 ```json
 {
@@ -137,11 +137,12 @@ Requests a new email verification link to be sent to the specified email address
 **Response**:
 ```json
 {
-  "detail": "Email verification link has been sent to the provided email address."
+  "detail": "A new OTP has been sent."
 }
 ```
 **Errors**:
-- `400 Bad Request`: Occurs if the email is invalid or a user with that email is not found.
+- `400 Bad Request`: Email is missing or User is already verified.
+- `404 Not Found`: User with provided email does not exist.
 
 #### POST /api/auth/login/
 Authenticates a user using their email and password, returning JWT access and refresh tokens upon success.
