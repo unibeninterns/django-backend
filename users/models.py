@@ -2,6 +2,8 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _ 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
+import random
+from datetime import timedelta
 
 ROLE_CHOICES = (
     ('student', 'Student'),
@@ -93,4 +95,21 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return self.username
 
+
+class EmailOTP(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
+    otp_code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_verified = models.BooleanField(default=False)
+    
+    def generate_otp(self):
+        self.otp_code = str(random.randint(100000, 999999))
+        self.created_at = timezone.now()
+        self.save()
+
+    def is_expired(self):
+        return timezone.now() > self.created_at + timedelta(minutes=10)
+
+    def __str__(self):
+        return f"OTP for {self.user.email} - {self.otp_code}"
     

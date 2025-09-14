@@ -19,6 +19,11 @@ from django.conf import settings
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from django.utils import timezone
+from rest_framework import status
+from .serializers import OTPVerificationSerializer
+from django.core.mail import send_mail
+from .models import CustomUser, EmailOTP
+from dj_rest_auth.registration.views import RegisterView
 
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
@@ -118,3 +123,57 @@ class UserViewSet(viewsets.ModelViewSet):
         today = timezone.now().date()
         signups_today = CustomUser.objects.filter(start_date__date=today).count()
         return Response({"signups_today": signups_today})
+
+
+class CustomRegisterView(RegisterView):
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.save(self.request)  # ✅ This is where the user is created
+
+        if not user.is_active:
+            return Response(
+                {"detail": "Registration successful. Please verify your email with the OTP."},
+                status=status.HTTP_201_CREATED
+            )
+
+        return super().create(request, *args, **kwargs)
+    
+
+
+class OTPVerificationView(APIView):
+    def post(self, request):
+        serializer = OTPVerificationSerializer(data=request.data)
+        if serializer.is_valid():
+            tokens = serializer.save()
+            return Response(tokens, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+class ResendOTPView(APIView):
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response({"error": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = CustomUser.objects.get(email=email)
+        except CustomUser.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.is_active:
+            return Response({"detail": "User is already verified."}, status=status.HTTP_400_BAD_REQUEST)
+
+        otp_obj, _ = EmailOTP.objects.get_or_create(user=user)
+        otp_obj.generate_otp()
+
+        send_mail(
+            subject="Your new verification code",
+            message=f"Your new OTP code is: {otp_obj.otp_code}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+
+        return Response({"detail": "A new OTP has been sent."}, status=status.HTTP_200_OK)
