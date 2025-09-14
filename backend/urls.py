@@ -3,6 +3,7 @@ from django.urls import path, include
 from dj_rest_auth.registration.views import SocialLoginView
 from django.conf import settings
 from users.views import GoogleLogin 
+from users.views import CustomRegisterView
 
 
 api_routes = [
@@ -18,8 +19,9 @@ urlpatterns = [
     path('api/', include(api_routes)),
 
     # dj-rest-auth endpoints
+    path('api/auth/registration/', CustomRegisterView.as_view(), name='rest_register'),
     path('api/auth/', include('dj_rest_auth.urls')),
-    path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
+    # path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
     path('api/auth/social/login/', SocialLoginView.as_view(), name='social_login'),
 
     # allauth urls

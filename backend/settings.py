@@ -146,14 +146,13 @@ REST_USE_JWT = True
 # Allauth settings
 ACCOUNT_LOGIN_METHODS = {'email'}
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'first_name*', 'last_name*', 'password1*', 'password2*']
-ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
+ACCOUNT_EMAIL_VERIFICATION = "none"
+ACCOUNT_CONFIRM_EMAIL_ON_GET = False
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
-ACCOUNT_CONFIRM_EMAIL_ON_GET = True
-
 
 # Frontend URL
-FRONTEND_URL = "http://localhost:5173"   #Vite Endpoint, please change as expected
+FRONTEND_URL = "http://localhost:5173"   #Vite Endpoint, please change as expected 
 
 SITE_URL = "http://127.0.0.1:8000" 
 
