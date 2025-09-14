@@ -31,6 +31,9 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'rest_framework.authtoken',
 
+    #swagger
+    'drf_yasg',
+
     # CORS
     'corsheaders',
 
