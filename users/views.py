@@ -21,7 +21,7 @@ from rest_framework.decorators import action
 from django.utils import timezone
 from rest_framework import status
 from .serializers import OTPVerificationSerializer
-from django.core.mail import send_mail
+from core.email_utils import send_html_email
 from .models import CustomUser, EmailOTP
 from dj_rest_auth.registration.views import RegisterView
 from drf_yasg.utils import swagger_auto_schema
@@ -313,6 +313,8 @@ class CustomRegisterView(RegisterView):
 
 
 class OTPVerificationView(APIView):
+    permission_classes = [AllowAny]
+
     @swagger_auto_schema(
         operation_summary="Verify OTP",
         request_body=OTPVerificationSerializer,
@@ -332,6 +334,7 @@ class OTPVerificationView(APIView):
 
 
 class ResendOTPView(APIView):
+    permission_classes = [AllowAny]
 
     @swagger_auto_schema(
         operation_summary="Resend OTP to user email",
@@ -365,12 +368,12 @@ class ResendOTPView(APIView):
         otp_obj, _ = EmailOTP.objects.get_or_create(user=user)
         otp_obj.generate_otp()
 
-        send_mail(
+        # Send OTP email
+        send_html_email(
             subject="Your new verification code",
-            message=f"Your new OTP code is: {otp_obj.otp_code}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
+            template_name="email/otp_email.html",
+            context={'user': user, 'otp_code': otp_obj.otp_code},
             recipient_list=[user.email],
-            fail_silently=False,
         )
 
         return Response({"detail": "A new OTP has been sent."}, status=status.HTTP_200_OK)
