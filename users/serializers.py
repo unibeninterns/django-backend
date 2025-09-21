@@ -81,12 +81,12 @@ class CustomRegisterSerializer(RegisterSerializer):
         otp_obj, _ = EmailOTP.objects.get_or_create(user=user)
         otp_obj.generate_otp()
 
-        send_mail(
+        # Send OTP email
+        send_html_email(
             subject="Your verification code",
-            message=f"Your OTP code is: {otp_obj.otp_code}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
+            template_name="email/otp_email.html",
+            context={'user': user, 'otp_code': otp_obj.otp_code},
             recipient_list=[user.email],
-            fail_silently=False,
         )
 
         return user
@@ -188,5 +188,8 @@ class OTPVerificationSerializer(serializers.Serializer):
             'access': str(refresh.access_token),
         }
     
+
+
+  
 
 
