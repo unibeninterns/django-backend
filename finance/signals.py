@@ -1,6 +1,6 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from finance.models import PaymentTransaction
+from .models import PaymentTransaction
 
 @receiver(post_save, sender=PaymentTransaction)
 def update_financial_metrics(sender, instance, created, **kwargs):
