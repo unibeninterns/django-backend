@@ -30,6 +30,7 @@ api_routes = [
     path('assessments/', include('assessments.urls')),
     path('progresse/', include('progresse.urls')),
     path('payments/', include('payments.urls')),
+    path('v1/', include('finance.urls')),
 ]
 
 urlpatterns = [

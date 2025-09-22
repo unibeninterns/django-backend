@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     'progresse',
     'payments',
     'assessments',
+    'finance',
 
     # REST Framework & Auth
     'rest_framework',
@@ -39,6 +40,10 @@ INSTALLED_APPS = [
 
     # CORS
     'corsheaders',
+
+    #Celery Beat
+    'django_celery_beat',
+    'django_celery_results',
 
     # Allauth
     'allauth',
@@ -195,5 +200,27 @@ else:
 # Media files for development
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
+
+
+# Celery
+# CELERY_BROKER_URL = 'redis://localhost:6379/0'  
+# CELERY_RESULT_BACKEND = 'django-db'  #this stores the celery response to the database
+
+# CELERY_ACCEPT_CONTENT = ['json']
+# CELERY_TASK_SERIALIZER = 'json'
+# CELERY_RESULT_SERIALIZER = 'json'
+
+# from celery.schedules import crontab
+# CELERY_BEAT_SCHEDULE = {
+#     'daily-aggregation': {
+#         'task': 'financial.tasks.aggregate_daily_metrics',        
+#         'schedule': crontab(hour=0, minute=0),
+#     },
+# }
+
+# Test Celery locally
+CELERY_BROKER_URL = 'memory://'
+CELERY_RESULT_BACKEND = 'cache+memory://'
+
 
 
