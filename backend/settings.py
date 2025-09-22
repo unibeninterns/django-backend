@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 import os
+from celery import Celery
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -202,21 +203,30 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
 
-# Celery
-# CELERY_BROKER_URL = 'redis://localhost:6379/0'  
-# CELERY_RESULT_BACKEND = 'django-db'  #this stores the celery response to the database
+Celery
+CELERY_BROKER_URL = 'redis://localhost:6379/0'  
+CELERY_RESULT_BACKEND = 'django-db'  #this stores the celery response to the database
 
-# CELERY_ACCEPT_CONTENT = ['json']
-# CELERY_TASK_SERIALIZER = 'json'
-# CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
 
-# from celery.schedules import crontab
-# CELERY_BEAT_SCHEDULE = {
-#     'daily-aggregation': {
-#         'task': 'financial.tasks.aggregate_daily_metrics',        
-#         'schedule': crontab(hour=0, minute=0),
-#     },
-# }
+from celery.schedules import crontab
+CELERY_BEAT_SCHEDULE = {
+    'daily-aggregation': {
+        'task': 'finance.tasks.aggregate_daily_metrics',        
+        'schedule': crontab(hour=0, minute=0),
+    },
+    'weekly-aggregation': {
+        'task': 'yourapp.tasks.aggregate_weekly_metrics',
+        'schedule': crontab(minute=0, hour=0, day_of_week='sun'),
+    },
+    'monthly-aggregation': {
+        'task': 'yourapp.tasks.aggregate_monthly_metrics',
+        'schedule': crontab(minute=0, hour=0, day_of_month='1'),
+    },
+
+}
 
 # Test Celery locally
 CELERY_BROKER_URL = 'memory://'
