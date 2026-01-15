@@ -10,7 +10,6 @@ class ContentProgressSerializer(serializers.ModelSerializer):
             'completed_at', 'started_at', 'attempts', 'completion_data'
         ]
 
-
 class LessonProgressSerializer(serializers.ModelSerializer):
     class Meta:
         model = LessonProgress
@@ -38,11 +37,26 @@ class QuizProgressSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'student', 'quiz', 'state', 'attempts', 'best_score',
             'latest_score', 'is_passed', 'started_at', 'completed_at',
-            'last_accessed', 'completion_data', 'current_state',
+            'last_accessed', 'completion_data', 'current_state', 'state'
         ]
         extra_kwargs = {
             'state': {'write_only': True}  # optional: keep `state` for input only
         }
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+
+        # If the user is a student, remove the sensitive score/internal fields
+        if request and request.user.role == 'student':
+            hidden_fields = [
+                'id', 'student', 'best_score', 'latest_score',
+                'is_passed', 'started_at', 'completed_at',
+                'completion_data', 'quiz', 'state'
+            ]
+            for field in hidden_fields:
+                data.pop(field, None)
+        return data
 
 
 class ProgressEventSerializer(serializers.ModelSerializer):

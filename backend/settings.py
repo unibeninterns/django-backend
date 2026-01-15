@@ -8,9 +8,10 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-fk5hmq=yg%4o%afyvk(8qc)96dpy6_&$obopb_*c$#q&5f9(4k'
+SECRET_KEY = os.getenv('SECRET_KEY')
+
 DEBUG = True
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['127.0.0.1', '.ngrok-free.app']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -20,6 +21,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_extensions',
+    'channels',
 
     'django.contrib.sites', 
 
@@ -118,6 +120,8 @@ LOGGING = {
     }
 }
 
+FLUTTERWAVE_SECRET_KEY = os.getenv('FLUTTERWAVE_SECRET_KEY')
+FLUTTERWAVE_PUBLIC_KEY = os.getenv('FLUTTERWAVE_PUBLIC_KEY')
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
@@ -164,21 +168,20 @@ ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
 
 # Frontend URL
-FRONTEND_URL = "http://localhost:5173"   #Vite Endpoint, please change as expected 
+FRONTEND_URL = "http://127.0.0.1:8000"   #Vite Endpoint, please change as expected
 
 SITE_URL = "http://127.0.0.1:8000" 
 
-
 # dj-rest-auth custom serializer
 REST_AUTH = {
+    'USE_JWT': True,
+    'SESSION_LOGIN': False,
+    'JWT_AUTH_HTTPONLY': False,
     'REGISTER_SERIALIZER': 'users.serializers.CustomRegisterSerializer',
     'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
     'PASSWORD_RESET_CONFIRM_URL': f'{FRONTEND_URL}/reset-password/{{uid}}/{{token}}/',
     'OLD_PASSWORD_FIELD_ENABLED': True,
-    'SIGNUP_FIELDS': {
-            'username': {'required': False},
-            'email': {'required': True},
-        },
+    'PASSWORD_RESET_SERIALIZER': 'dj_rest_auth.serializers.PasswordResetSerializer',
 }
 
 # Email settings
@@ -188,6 +191,7 @@ EMAIL_PORT = int(os.getenv('SMTP_PORT', 587))
 EMAIL_HOST_USER = os.getenv('SMTP_USER')
 EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASS')
 EMAIL_USE_TLS = True
+EMAIL_USE_SSL = False
 DEFAULT_FROM_EMAIL = os.getenv('EMAIL_FROM')
 
 # CORS settings
@@ -203,8 +207,23 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
 
-Celery
-CELERY_BROKER_URL = 'redis://localhost:6379/0'  
+# Celery Configuration
+
+# This tells Django to use the Channels routing system for WebSockets
+ASGI_APPLICATION = 'backend.asgi.application'
+
+# This is the "bus" that lets Django and Celery talk to each other
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+        },
+    },
+}
+
+CELERY_TIMEZONE = 'UTC'
+CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
 CELERY_RESULT_BACKEND = 'django-db'  #this stores the celery response to the database
 
 CELERY_ACCEPT_CONTENT = ['json']
@@ -214,7 +233,7 @@ CELERY_RESULT_SERIALIZER = 'json'
 from celery.schedules import crontab
 CELERY_BEAT_SCHEDULE = {
     'daily-aggregation': {
-        'task': 'finance.tasks.aggregate_daily_metrics',        
+        'task': 'finance.tasks.aggregate_daily_metrics',
         'schedule': crontab(hour=0, minute=0),
     },
     'weekly-aggregation': {
@@ -228,9 +247,9 @@ CELERY_BEAT_SCHEDULE = {
 
 }
 
-# Test Celery locally
-CELERY_BROKER_URL = 'memory://'
-CELERY_RESULT_BACKEND = 'cache+memory://'
+# # Test Celery locally
+# CELERY_BROKER_URL = 'memory://'
+# CELERY_RESULT_BACKEND = 'cache+memory://'
 
 
 

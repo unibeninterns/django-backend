@@ -321,5 +321,47 @@ class UserSettingsModelTests(TestCase):
         self.assertEqual(str(self.settings), expected)
 
 
-
 print(f"Response status: {response.status_code}, data: {response.data}")
+
+
+@action(detail=True, methods=['post'], url_path='complete')
+    def complete_content(self, request, pk=None):
+        user = request.user
+        content_item = self.get_object()
+
+        # 1. Get or Create the progress record for the item
+        progress, _ = ContentProgress.objects.get_or_create(
+            student=user,
+            content_item=content_item
+        )
+
+        # 2. Transition to COMPLETED
+        try:
+            progress.transition_to(ContentState.COMPLETED)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Update the Lesson Progress
+        lesson_progress, _ = LessonProgress.objects.get_or_create(
+            student=user,
+            lesson=content_item.lesson
+        )
+
+        # Run the check we just added to the model
+        lesson_was_completed = lesson_progress.check_and_update_status()
+
+        # 4. Optional: If lesson is done, check if Module is done
+        module_was_completed = False
+        if lesson_was_completed:
+            module_progress, _ = ModuleCompletion.objects.get_or_create(
+                student=user,
+                module=content_item.lesson.module
+            )
+            # You can implement a similar check_and_update_status on ModuleCompletion!
+            module_was_completed = module_progress.check_and_update_status()
+
+        return Response({
+            "item_status": progress.state,
+            "lesson_completed": lesson_was_completed,
+            "module_completed": module_was_completed
+        })

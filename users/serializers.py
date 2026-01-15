@@ -2,7 +2,7 @@ from dj_rest_auth.registration.serializers import RegisterSerializer
 from dj_rest_auth.serializers import LoginSerializer
 from rest_framework import serializers
 from django.utils.text import slugify
-from .models import CustomUser
+from .models import CustomUser, TutorProfile, TutorInvitation, TutorCourseAssignment
 from django.contrib.auth import authenticate
 from django.utils.translation import gettext_lazy as _
 from django.core.mail import send_mail
@@ -11,9 +11,15 @@ from django.conf import settings
 from .models import CustomUser, EmailOTP
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
-
+from core.email_utils import send_html_email
+from django.contrib.auth import get_user_model
+from payments.models import Enrollment
+from module.models import CertificateRequest
+import uuid
+from module.models import Course
 
 User = get_user_model()
+
 
 
 class AdminLoginSerializer(serializers.Serializer):
@@ -26,7 +32,6 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'first_name', 'last_name', 'email', 'is_verified', 'username', 'role', 'cohort']
         read_only_fields = ['username', 'is_verified', 'role', 'cohort']
 
-
 class CustomRegisterSerializer(RegisterSerializer):
     _has_phone_field = False
     username = None
@@ -34,13 +39,22 @@ class CustomRegisterSerializer(RegisterSerializer):
     first_name = serializers.CharField(required=True)
     last_name = serializers.CharField(required=True)
 
+    password1 = serializers.CharField(write_only=True)
+    password2 = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        if data['password1'] != data['password2']:
+            raise serializers.ValidationError("Passwords don't match.")
+        return data
+
     class Meta:
         model = CustomUser
         fields = [
             "email",
             "first_name",
             "last_name",
-            "password",
+            "password1",
+            "password2",
         ]
 
     def validate_email(self, value):
@@ -49,6 +63,12 @@ class CustomRegisterSerializer(RegisterSerializer):
         return value
 
     def get_cleaned_data(self):
+        try:
+            parent_data = super().get_cleaned_data()
+            print("Parent get_cleaned_data returns:", parent_data)  # Check your console/logs
+        except Exception as e:
+            print("Parent get_cleaned_data error:", e)
+
         return {
             'first_name': self.validated_data.get('first_name', ''),
             'last_name': self.validated_data.get('last_name', ''),
@@ -68,11 +88,14 @@ class CustomRegisterSerializer(RegisterSerializer):
             while CustomUser.objects.filter(username=username).exists():
                 username = f'{base_username}_{counter}'
                 counter += 1
+                # Add a safety limit
+                if counter > 100:
+                    # Fallback: use email or UUID
+                    username = f'{base_username}_{uuid.uuid4().hex[:8]}'
+                    break
             user.username = username
 
         # Add user info
-        user.first_name = self.validated_data['first_name']
-        user.last_name = self.validated_data['last_name']
         user.is_active = False
 
         user.save()
@@ -187,9 +210,136 @@ class OTPVerificationSerializer(serializers.Serializer):
             'refresh': str(refresh),
             'access': str(refresh.access_token),
         }
-    
 
 
-  
+class UserSettingsSerializer(serializers.ModelSerializer):
+    profile_photo = serializers.ImageField(required=False, allow_null=True)
+    email_alerts = serializers.BooleanField(default=True)
+    platform_alerts = serializers.BooleanField(default=True)
+    full_name = serializers.SerializerMethodField()
+    enrolled_courses = serializers.SerializerMethodField()
+    certificates = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "profile_photo",
+            "first_name",
+            "last_name",
+            "full_name",
+            "email",
+            "phone_number",
+            "password",
+            "email_alerts",
+            "platform_alerts",
+            "enrolled_courses",
+            "certificates",
+        ]
+        extra_kwargs = {
+            'password': {'write_only': True, 'required': False},
+            'email': {'required': True},
+        }
+
+    def get_full_name(self, obj):
+        return f"{obj.first_name} {obj.last_name}"
+
+    def get_enrolled_courses(self, obj):
+        # Return course titles the user is enrolled in
+        enrollments = Enrollment.objects.filter(user=obj)
+        return [enrollment.package.title for enrollment in enrollments]
+
+    def get_certificates(self, obj):
+        certs = CertificateRequest.objects.filter(student=obj)
+        return [{"course": cert.course.title, "status": cert.status} for cert in certs]
+
+    def update(self, instance, validated_data):
+        # Update basic info
+        instance.first_name = validated_data.get("first_name", instance.first_name)
+        instance.last_name = validated_data.get("last_name", instance.last_name)
+        instance.email = validated_data.get("email", instance.email)
+        instance.phone_number = validated_data.get("phone_number", getattr(instance, "phone_number", None))
+
+        # Profile photo
+        if "profile_photo" in validated_data:
+            instance.profile_photo = validated_data.get("profile_photo")
+
+        # Alerts
+        instance.email_alerts = validated_data.get("email_alerts", getattr(instance, "email_alerts", True))
+        instance.platform_alerts = validated_data.get("platform_alerts", getattr(instance, "platform_alerts", True))
+
+        # Password change
+        password = validated_data.get("password", None)
+        if password:
+            instance.set_password(password)
+
+        instance.save()
+        return instance
 
 
+class TutorProfileSerializer(serializers.ModelSerializer):
+    full_name = serializers.SerializerMethodField()
+    email = serializers.EmailField(source='user.email', read_only=True)
+    course = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TutorProfile
+        fields = [
+            'id',
+            'full_name',
+            'email',
+            'course',
+            'status',
+            'is_active',
+            'created_at',
+        ]
+
+    def get_full_name(self, obj):
+        return f"{obj.user.first_name} {obj.user.last_name}".strip()
+
+    def get_course(self, obj):
+        assignment = getattr(obj, 'course_assignment', None)
+        return assignment.course.title if assignment else None
+
+    def get_status(self, obj):
+        assignment = getattr(obj, 'course_assignment', None)
+        return assignment.status if assignment else 'unassigned'
+
+class TutorInvitationSerializer(serializers.ModelSerializer):
+    course_title = serializers.CharField(source='course.title', read_only=True)
+
+    class Meta:
+        model = TutorInvitation
+        fields = [
+            'id',
+            'email',
+            'course',
+            'course_title',
+            'status',
+            'sent_at',
+            'accepted_at',
+        ]
+
+
+class TutorCourseAssignmentSerializer(serializers.ModelSerializer):
+    tutor_email = serializers.EmailField(source='tutor.user.email', read_only=True)
+    course_title = serializers.CharField(source='course.title', read_only=True)
+
+    class Meta:
+        model = TutorCourseAssignment
+        fields = [
+            'id',
+            'tutor',
+            'tutor_email',
+            'course',
+            'course_title',
+            'status',
+            'assigned_at',
+            'completed_at',
+        ]
+
+
+class TutorInvitationCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TutorInvitation
+        fields = ['email']

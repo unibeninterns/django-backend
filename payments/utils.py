@@ -51,6 +51,45 @@ def create_flutterwave_payment(user, package, amount, redirect_url):
         print(f"Unexpected error: {e}")
         return None, None
 
+def create_flutterwave_payment_link(user, amount, tx_ref, redirect_url, description):
+    """
+    Generic function to generate a Flutterwave payment link.
+    """
+    url = "https://api.flutterwave.com/v3/payments"
+    headers = {
+        "Authorization": f"Bearer {settings.FLUTTERWAVE_SECRET_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "tx_ref": tx_ref,  # Use the ref passed from the View
+        "amount": str(amount),
+        "currency": "NGN",
+        "redirect_url": redirect_url,
+        "customer": {
+            "email": user.email,
+            "name": f"{user.first_name} {user.last_name}",
+        },
+        "customizations": {
+            "title": "Certificate Issuance",
+            "description": description,
+            "logo": "https://your-website.com/logo.png"  # Optional
+        }
+    }
+
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        response_data = response.json()
+
+        if response.status_code == 200 and response_data['status'] == 'success':
+            return response_data['data']['link']  # Return just the link
+        else:
+            print(f"Flutterwave API Error: {response_data.get('message')}")
+            return None
+
+    except Exception as e:
+        print(f"Payment Link Generation Error: {e}")
+        return None
 
 def verify_flutterwave_payment(transaction_id):
     """
@@ -84,7 +123,6 @@ def verify_flutterwave_payment(transaction_id):
         print(f"Unexpected error during verification: {e}")
         return False, None
 
-
 def verify_flutterwave_webhook_signature(request):
     """
     Verify Flutterwave webhook signature for security
@@ -103,7 +141,6 @@ def verify_flutterwave_webhook_signature(request):
         return False, "Invalid signature"
     
     return True, "Signature verified"
-
 
 def handle_flutterwave_webhook(payload):
     """
@@ -159,7 +196,6 @@ def handle_flutterwave_webhook(payload):
     
     return True, "Webhook processed successfully"
 
-
 def calculate_package_total(package, add_ons=None):
     """
     Calculate total amount for a package including add-ons
@@ -171,7 +207,6 @@ def calculate_package_total(package, add_ons=None):
             total += add_on.price
     
     return total
-
 
 def generate_transaction_id(user, package):
     """

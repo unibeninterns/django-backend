@@ -1,0 +1,29 @@
+tink@gmail.com
+tink
+ker
+tink1234
+
+{
+    "email": "tink@gmail.com",
+    "password": "tink1234"
+}
+
+{
+    "email": "oesigbone@gmail.com",
+    "password": "NewSecurePassword123!"
+}
+
+{
+    "email": "jane.doe@example.com",
+    "password": "SecurePass2026!"
+}
+
+{
+    "email": "tutor.smith@example.com",
+    "password": "TutorPass2026!"
+}
+
+
+
+C:\Windows\system32>ngrok config add-authtoken 38GutuORH6RJXIoxrgdT1Pu7XbP_2VmkNUBTQAUSj8NR5oH5o                        \
+Authtoken saved to configuration file: C:\Users\user\AppData\Local/ngrok/ngrok.yml

@@ -129,7 +129,7 @@ class Migration(migrations.Migration):
                 ('id', models.AutoField(primary_key=True, serialize=False)),
                 ('title', models.CharField(max_length=200)),
                 ('passing_score', models.FloatField(default=70.0, help_text='Passing score percentage (0.0 to 100.0).', validators=[django.core.validators.MinValueValidator(0.0), django.core.validators.MaxValueValidator(100.0)])),
-                ('max_attempts', models.PositiveIntegerField(default=3, help_text='Maximum number of attempts allowed (1 to 3).', validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(3)])),
+                ('max_attempts', models.PositiveIntegerField(default=5, help_text='Maximum number of attempts allowed (1 to 5).', validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(3)])),
                 ('is_required_for_module', models.BooleanField(default=True)),
                 ('lesson', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='quizzes', to='module.lesson')),
                 ('module', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='quizzes', to='module.module')),

@@ -6,6 +6,7 @@ from django.db.models import UniqueConstraint
 from datetime import timedelta
 from django.db.models import Avg
 from django.db.models.functions import ExtractWeek, ExtractYear
+from module.models import CapstoneProject, CapstoneInstructions
 
 class ContentProgress(models.Model):
     """Individual content item progresse with state tracking."""
@@ -21,14 +22,14 @@ class ContentProgress(models.Model):
     # Existing fields
     is_completed = models.BooleanField(default=False)
     progress_percentage = models.FloatField(default=0.0)
-    time_spent = models.DurationField(default=timedelta(0)) # New field for time spent
+    time_spent = models.DurationField(default=timedelta(0))
     last_accessed = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     # New fields for state management
     started_at = models.DateTimeField(null=True, blank=True)
     attempts = models.PositiveIntegerField(default=0)
-    completion_data = models.JSONField(default=dict)  # Store scores, watch time, etc.
+    completion_data = models.JSONField(default=dict)
 
 
     class Meta:
@@ -58,8 +59,11 @@ class ContentProgress(models.Model):
         self.state = new_state.value
 
         # Update timestamps and boolean flags for backward compatibility
-        if new_state == ContentState.IN_PROGRESS and not self.started_at:
-            self.started_at = timezone.now()
+        if new_state == ContentState.IN_PROGRESS:
+            if not self.started_at:
+                self.started_at = timezone.now()
+            if old_state != ContentState.IN_PROGRESS:
+                self.attempts += 1
         elif new_state == ContentState.COMPLETED:
             self.completed_at = timezone.now()
             self.progress_percentage = 100.0
@@ -76,7 +80,7 @@ class ContentProgress(models.Model):
         """Check if state transition is valid."""
         valid_transitions = {
             ContentState.LOCKED: [ContentState.AVAILABLE],
-            ContentState.AVAILABLE: [ContentState.IN_PROGRESS],
+            ContentState.AVAILABLE: [ContentState.IN_PROGRESS, ContentState.COMPLETED],
             ContentState.IN_PROGRESS: [ContentState.COMPLETED, ContentState.FAILED],
             ContentState.FAILED: [ContentState.IN_PROGRESS],
             ContentState.COMPLETED: []  # Terminal state
@@ -164,6 +168,36 @@ class LessonProgress(models.Model):
         }
         return to_state in valid_transitions.get(from_state, [])
 
+    def check_and_update_status(self):
+        """Checks if all child content is done AND the quiz is passed."""
+        # 1. Content Items check - Using the corrected attribute name
+        total_items = self.lesson.content_items.count()  # Changed from contentitem_set
+
+        completed_items = ContentProgress.objects.filter(
+            student=self.student,
+            content_item__lesson=self.lesson,
+            state=ContentState.COMPLETED.value
+        ).count()
+
+        content_finished = (total_items == 0 or completed_items >= total_items)
+
+        # 2. Quiz check
+        quiz_finished = True
+        if hasattr(self.lesson, 'quiz'):
+            quiz_finished = QuizProgress.objects.filter(
+                student=self.student,
+                quiz=self.lesson.quiz,
+                state=ContentState.COMPLETED.value
+            ).exists()
+
+        # 3. Final Transition
+        if content_finished and quiz_finished:
+            if self.get_state_enum() != ContentState.COMPLETED:
+                self.transition_to(ContentState.COMPLETED)
+                return True
+
+        return False
+
 class ModuleCompletion(models.Model):
     """Module completion tracking with state management."""
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -226,6 +260,28 @@ class ModuleCompletion(models.Model):
         }
         return to_state in valid_transitions.get(from_state, [])
 
+    def check_and_update_status(self):
+        """Checks if all lessons in this module are done and updates module status."""
+
+        # 1. Count total lessons in this module
+        total_lessons = self.module.lesson_set.count()
+
+        # 2. Count completed lessons for this student
+        # Note: We filter LessonProgress by the student and the module's lessons
+        completed_lessons = LessonProgress.objects.filter(
+            student=self.student,
+            lesson__module=self.module,
+            state=ContentState.COMPLETED.value
+        ).count()
+
+        # 3. If everything is done, transition the module
+        if total_lessons > 0 and completed_lessons >= total_lessons:
+            if self.get_state_enum() != ContentState.COMPLETED:
+                self.transition_to(ContentState.COMPLETED)
+                return True
+
+        return False
+
     class Meta:
         constraints = [
             UniqueConstraint(fields=['student', 'module'], name='unique_student_module')
@@ -244,6 +300,7 @@ class QuizProgress(models.Model):
     """Quiz progresse tracking with attempts and scoring."""
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     quiz = models.ForeignKey('module.Quiz', on_delete=models.CASCADE)
+    current_question = models.IntegerField(null=True, blank=True)
 
     # State tracking
     state = models.CharField(
@@ -276,6 +333,9 @@ class QuizProgress(models.Model):
         ]
         verbose_name = "QuizProgress"
         verbose_name_plural = "QuizProgress"
+
+    def __str__(self):
+        return f" Quiz progress for {self.student.username}, for Quiz : {self.quiz.title})"
 
     def get_state_enum(self):
         return ContentState(self.state)
@@ -326,7 +386,7 @@ class QuizProgress(models.Model):
     def _is_valid_transition(self, from_state: ContentState, to_state: ContentState) -> bool:
         """Check if state transition is valid."""
         valid_transitions = {
-            ContentState.LOCKED: [ContentState.AVAILABLE, [ContentState.IN_PROGRESS]],
+            ContentState.LOCKED: [ContentState.AVAILABLE, ContentState.IN_PROGRESS],
             ContentState.AVAILABLE: [ContentState.IN_PROGRESS],
             ContentState.IN_PROGRESS: [ContentState.COMPLETED, ContentState.FAILED],
             ContentState.FAILED: [ContentState.IN_PROGRESS],  # Allow retries
@@ -335,16 +395,24 @@ class QuizProgress(models.Model):
         return to_state in valid_transitions.get(from_state, [])
 
 class ProjectProgress(models.Model):
-    """Project progresse tracking with submission and approval workflow."""
+    """THE TRACKER"""
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    project = models.ForeignKey('module.CapstoneProject', on_delete=models.CASCADE, default='')
 
-    # State tracking
-    state = models.CharField(
-        max_length=20,
-        choices=[(state.value, state.value) for state in ContentState],
-        default=ContentState.LOCKED.value
+    # 2. LINK TO INSTRUCTIONS
+    # Essential because this record exists BEFORE the submission exists (Locked/Available states)
+    instructions = models.ForeignKey(CapstoneInstructions, on_delete=models.CASCADE, related_name='progress_records', default='')
+
+    # 3. LINK TO SUBMISSION
+    # We still need this to know WHICH submission is the current "active" one for this student
+    submission = models.OneToOneField(
+        CapstoneProject,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='progress_tracker'
     )
+
+    state = models.CharField(default=ContentState.LOCKED.value, max_length=20)
 
     # Project-specific fields
     is_submitted = models.BooleanField(default=False)
@@ -363,11 +431,11 @@ class ProjectProgress(models.Model):
 
     class Meta:
         constraints = [
-            UniqueConstraint(fields=['student', 'project'], name='unique_student_project')
+            UniqueConstraint(fields=['student', 'instructions'], name='unique_student_project')
         ]
         indexes = [
             models.Index(fields=['student', 'state']),
-            models.Index(fields=['project', 'state']),
+            models.Index(fields=['instructions', 'state']),
         ]
         verbose_name = "ProjectProgress"
         verbose_name_plural = "ProjectProgresses"
@@ -425,14 +493,55 @@ class ProjectProgress(models.Model):
         return to_state in valid_transitions.get(from_state, [])
 
 class ProgressEvent(models.Model):
-    """Audit log of all progresse events."""
+    """Audit log of all progress events with strict typing."""
+
+    # Define valid content types as a class attribute for reuse
+    CONTENT_TYPE_CHOICES = (
+        ('lesson', 'Lesson'),
+        ('module', 'Module'),
+        ('quiz', 'Quiz'),
+        ('project', 'Project'),
+        ('content_item', 'Content Item'),
+        ('resource', 'Resource'),
+        ('certificate_payment', 'Certificate_Payment')
+    )
+
+    EVENT_TYPE_CHOICES = (
+        ('state_change', 'State Change'),
+        ('unlock', 'Unlock'),
+        ('access_denied', 'Access Denied'),
+        ('payment_confirmed', 'Payment Confirmed'),
+        ('viewed', 'Viewed'),
+        ('course', 'Course')
+    )
+
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    content_type = models.CharField(max_length=20)  # 'lesson', 'module', 'quiz', 'project', 'content_item'
+
+    # Use choices for type safety
+    content_type = models.CharField(
+        max_length=20,
+        choices=CONTENT_TYPE_CHOICES
+    )
     content_id = models.PositiveIntegerField()
 
-    event_type = models.CharField(max_length=30)  # 'state_change', 'unlock', 'access_denied'
-    old_state = models.CharField(max_length=20, null=True)
-    new_state = models.CharField(max_length=20, null=True)
+    event_type = models.CharField(
+        max_length=30,
+        choices=EVENT_TYPE_CHOICES
+    )
+
+    # Inherit options directly from your ContentState Enum
+    old_state = models.CharField(
+        max_length=20,
+        choices=[(state.value, state.value) for state in ContentState],
+        null=True,
+        blank=True
+    )
+    new_state = models.CharField(
+        max_length=20,
+        choices=[(state.value, state.value) for state in ContentState],
+        null=True,
+        blank=True
+    )
 
     metadata = models.JSONField(default=dict)
     timestamp = models.DateTimeField(auto_now_add=True)
@@ -442,3 +551,8 @@ class ProgressEvent(models.Model):
             models.Index(fields=['student', 'timestamp']),
             models.Index(fields=['content_type', 'content_id']),
         ]
+        verbose_name = "Progress Event"
+        verbose_name_plural = "Progress Events"
+
+    def __str__(self):
+        return f"{self.student.username} - {self.event_type} on {self.content_type} ({self.content_id})"

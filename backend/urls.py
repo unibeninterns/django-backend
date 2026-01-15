@@ -7,7 +7,9 @@ from users.views import CustomRegisterView
 from rest_framework.permissions import AllowAny
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
-
+from users.views import OTPVerificationView
+from django.views.generic import TemplateView
+from django.conf.urls.static import static
 
 schema_view = get_schema_view(
    openapi.Info(
@@ -21,7 +23,6 @@ schema_view = get_schema_view(
    public=True,
    permission_classes=[AllowAny]
 )
-
 
 
 api_routes = [
@@ -46,8 +47,16 @@ urlpatterns = [
     # allauth urls
     path('accounts/', include('allauth.urls')),
 
+    path(
+        'password-reset/confirm/<str:uidb64>/<str:token>/',
+        TemplateView.as_view(),  # Or a redirect to your frontend
+        name='password_reset_confirm'
+    ),
+
     # Google login endpoint
     path('api/auth/google/', GoogleLogin.as_view(), name='google_login'),
+
+    path('api/auth/verify-otp/', OTPVerificationView.as_view(), name='otp_verify'),
 
     # 🔥 Swagger & ReDoc routes
     re_path(r'^swagger(?P<format>\.json|\.yaml)$',
@@ -63,3 +72,6 @@ if settings.DEBUG:
     urlpatterns += [
         path('api/gui-auth/', include('rest_framework.urls')),
     ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

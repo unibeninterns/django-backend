@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from users.serializers import UserSerializer
 from module.serializers import CourseSerializer
-from .models import Payment, Enrollment, Package, AddOn
+from .models import Payment, Enrollment, Package, AddOn, Payout
 
 class PaymentSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -146,4 +146,53 @@ class EnrollmentStatusUpdateSerializer(serializers.ModelSerializer):
         if value not in valid_statuses:
             raise serializers.ValidationError("Invalid status")
         return value
+
+
+class PayoutSerializer(serializers.ModelSerializer):
+    recipient_email = serializers.EmailField(
+        source='recipient.email', read_only=True
+    )
+
+    class Meta:
+        model = Payout
+        fields = [
+            'id',
+            'recipient',
+            'recipient_email',
+            'amount',
+            'payment_method',
+            'status',
+            'reference',
+            'created_at',
+            'completed_at',
+            'notes',
+        ]
+        read_only_fields = ['created_at', 'completed_at']
+
+
+class AdminPayoutSerializer(serializers.ModelSerializer):
+    recipient_email = serializers.EmailField(
+        source='recipient.email',
+        read_only=True
+    )
+
+    class Meta:
+        model = Payout
+        fields = [
+            'id',
+            'reference',
+            'recipient',
+            'recipient_email',
+            'amount',
+            'payment_method',
+            'status',
+            'created_at',
+            'completed_at',
+            'notes',
+        ]
+        read_only_fields = [
+            'status',
+            'created_at',
+            'completed_at'
+        ]
 

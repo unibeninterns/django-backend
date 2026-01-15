@@ -8,9 +8,11 @@ from django.utils import timezone
 from unittest.mock import patch, Mock
 from .models import (
     Course, Module, Lesson, LessonNote, ContentItem, Quiz, Question,
-    QuizSubmission, Answer, Payment, CapstoneProject, LiveSession,
+    QuizSubmission, Answer, CapstoneProject, LiveSession,
     UserSettings, ActivityLog, CustomUser
 )
+
+from payments.models import Payment
 from progresse.models import QuizProgress
 from core.common.utils.progress_states import ContentState
 from core.common.utils import progress

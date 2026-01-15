@@ -1,37 +1,89 @@
 import json
 import hmac
 import hashlib
+from datetime import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.http import HttpResponse, JsonResponse
 from django.conf import settings
 from .models import Payment, Enrollment
 from .utils import verify_flutterwave_payment, verify_flutterwave_webhook_signature
+from module.models import CertificatePayment, CertificateRequest
+from payments.models import Payout
 
 @csrf_exempt
 @require_POST
 def flutterwave_webhook(request):
     """
-    Handle Flutterwave webhook for package payment notifications
+    Handle Flutterwave webhook for payment notifications
     """
-    # Verify webhook signature for security
     signature_valid, message = verify_flutterwave_webhook_signature(request)
     if not signature_valid:
         return HttpResponse(status=401)
-    
+
     try:
         payload = json.loads(request.body)
         event = payload.get('event')
         data = payload.get('data', {})
-        
+
         if event == 'charge.completed':
-            return _handle_charge_completed(data)
+            tx_ref = data.get('tx_ref', '')
+
+            if tx_ref.startswith('COURSE_'):
+                return _handle_charge_completed(data)
+
+            elif tx_ref.startswith('CERT-'):
+                return _handle_certificate_charge_completed(data)
+
+            else:
+                # Unknown payment reference — acknowledge but log later
+                return JsonResponse({
+                    'status': 'success',
+                    'message': 'Unknown tx_ref type, ignored'
+                })
+
         elif event == 'charge.failed':
-            return _handle_charge_failed(data)
+            tx_ref = data.get('tx_ref', '')
+
+            if tx_ref.startswith('COURSE_'):
+                return _handle_charge_failed(data)
+
+            elif tx_ref.startswith('CERT_'):
+                return _handle_certificate_charge_failed(data)
+
+            else:
+                return JsonResponse({
+                    'status': 'success',
+                    'message': 'Unknown tx_ref type, ignored'
+                })
+
+        elif event == 'transfer.completed':
+            transfer_id = data.get('id')
+            status = data.get('status')
+
+            try:
+                # Find the payout using the ID we stored earlier
+                payout = Payout.objects.get(flutterwave_id=transfer_id)
+
+                if status == 'SUCCESSFUL':
+                    payout.status = 'completed'
+                    payout.completed_at = timezone.now()
+                    payout.notes += "\nwebhook: Transfer Confirmed."
+                elif status == 'FAILED':
+                    payout.status = 'failed'
+                    payout.notes += f"\nwebhook: Bank Rejected - {data.get('complete_message')}"
+
+                payout.save()
+
+            except Payout.DoesNotExist:
+                print(f"Payout with FW-ID {transfer_id} not found.")
+
         else:
-            # Acknowledge other events but take no action
-            return JsonResponse({'status': 'success', 'message': 'Event acknowledged'})
-            
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Event acknowledged'
+            })
+
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON payload'}, status=400)
     except Exception as e:
@@ -142,3 +194,118 @@ def _handle_charge_failed(data):
         return JsonResponse({'error': 'Payment not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': f'Error processing failed charge: {str(e)}'}, status=500)
+
+
+def _handle_certificate_charge_completed(data):
+    """
+    Handle successful certificate payment webhook
+    """
+    transaction_id = data.get('id')
+    tx_ref = data.get('tx_ref')
+    status = data.get('status')
+
+    try:
+
+        payment = CertificatePayment.objects.select_related(
+            'course', 'student'
+        ).get(reference=tx_ref)
+
+        # Idempotency check
+        if payment.status == 'paid':
+            return JsonResponse({'status': 'success', 'message': 'Already processed'})
+
+        if status == 'successful':
+            # Verify transaction with Flutterwave
+            success, verification_data = verify_flutterwave_payment(transaction_id)
+
+            if not success:
+                payment.status = 'failed'
+                payment.save(update_fields=['status'])
+
+                return JsonResponse({
+                    'status': 'success',
+                    'message': 'Certificate payment verification failed'
+                })
+
+            # Mark payment completed
+            payment.status = 'paid'
+            payment.paid_at = timezone.now()
+            payment.save()
+
+            # Move certificate request forward
+            from module.models import CertificateRequest
+            cert_request = CertificateRequest.objects.get(
+                student=payment.student,
+                course=payment.course
+            )
+            cert_request.status = CertificateRequest.STATUS_APPROVED  # or 'awaiting_approval'
+            cert_request.save()
+
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Certificate payment completed, awaiting admin approval'
+            })
+
+        elif status == 'failed':
+            payment.status = 'failed'
+            payment.save(update_fields=['status'])
+
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Certificate payment failed'
+            })
+
+    except CertificatePayment.DoesNotExist:
+        return JsonResponse({'error': 'Certificate payment not found'}, status=404)
+
+    except Exception as e:
+        return JsonResponse({
+            'error': f'Error processing certificate payment: {str(e)}'
+        }, status=500)
+
+
+def _handle_certificate_charge_failed(data):
+    """
+    Handle failed certificate payment webhook
+    """
+    tx_ref = data.get('tx_ref')
+
+    try:
+        from module.models import CertificatePayment, CertificateRequest
+
+        payment = CertificatePayment.objects.select_related(
+            'certificate_request'
+        ).get(flutterwave_ref=tx_ref)
+
+        # Idempotency check
+        if payment.status != 'pending':
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Certificate payment already processed'
+            })
+
+        # Mark payment as failed
+        payment.status = 'failed'
+        payment.save(update_fields=['status'])
+
+        # Update certificate request
+        cert_request = payment.certificate_request
+        cert_request.status = CertificateRequest.STATUS_PAYMENT_FAILED
+        cert_request.save(update_fields=['status'])
+
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Certificate payment failed and request updated'
+        })
+
+    except CertificatePayment.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Certificate payment not found'},
+            status=404
+        )
+
+    except Exception as e:
+        return JsonResponse(
+            {'error': f'Error handling certificate payment failure: {str(e)}'},
+            status=500
+        )

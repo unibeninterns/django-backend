@@ -4,6 +4,7 @@ from core.common.utils.progress_states import ContentState
 from progresse.models import QuizProgress
 from module.models import *
 import logging
+from users.models import CustomUser
 
 logger = logging.getLogger(__name__)
 
@@ -11,17 +12,6 @@ logger = logging.getLogger(__name__)
 class IsAdminUser(permissions.BasePermission):
     def has_permission(self, request, view):
         return request.user and request.user.is_authenticated and request.user.role == 'admin'
-
-class IsOwnerOrAdmin(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
-        print(f"Checking permission for user: {request.user.email}, obj.user: {getattr(obj, 'user', None)}")
-        if request.user.role == 'admin':
-            return True
-        if hasattr(obj, 'student'):
-            return obj.student == request.user
-        if hasattr(obj, 'user'):
-            return obj.user == request.user
-        return False
 
 class IsStudent(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -34,6 +24,30 @@ class IsStudent(permissions.BasePermission):
         print(f"[IsStudent] → {allowed}")
         return allowed
 
+class IsTutor(permissions.BasePermission):
+    def has_permission(self, request, view):
+        print(f"[IsTutor] has_permission? user={request.user!r}")
+
+        allowed = (
+            request.user.is_authenticated and
+            isinstance(request.user, CustomUser) and
+            request.user.role == 'tutor'
+        )
+
+        print(f"[IsTutor] → {allowed}")
+        return allowed
+
+class IsOwnerOrAdmin(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        print(f"Checking permission for user: {request.user.email}, obj.user: {getattr(obj, 'user', None)}")
+        if request.user.role == 'admin':
+            return True
+        if hasattr(obj, 'student'):
+            return obj.student == request.user
+        if hasattr(obj, 'user'):
+            return obj.user == request.user
+        return False
+
 class CanAccessContent(permissions.BasePermission):
     """Base permission for content access using state machine."""
     def has_object_permission(self, request, view, obj):
@@ -41,6 +55,25 @@ class CanAccessContent(permissions.BasePermission):
             self.message = f"Object {obj} does not have an 'id' attribute"
             return False
         content_type = self._get_content_type(obj)
+
+        if content_type == 'course':
+            from payments.models import Enrollment  # Ensure correct path
+            from django.utils import timezone
+
+            # Check for any active enrollment linked to a package of this course
+            is_enrolled = Enrollment.objects.filter(
+                user=request.user,
+                package__course=obj,
+                status='active'
+            ).filter(
+                models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now())
+            ).exists()
+
+            if not is_enrolled:
+                self.message = "You do not have an active enrollment for this course."
+                return False
+            return True
+
         content_id = obj.id
 
         logger.debug(f"Using get_content_state from: {progress.get_content_state.__module__}")

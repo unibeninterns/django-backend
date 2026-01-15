@@ -1,7 +1,9 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Feature, Package, AddOn, Payment, Enrollment
+from .models import Feature, Package, AddOn, Payment, Enrollment, Payout
 
+admin.site.register(Payout)
+# ask gpt what tf all these mean
 
 @admin.register(Feature)
 class FeatureAdmin(admin.ModelAdmin):
@@ -21,7 +23,7 @@ class FeatureInline(admin.TabularInline):
 
 @admin.register(Package)
 class PackageAdmin(admin.ModelAdmin):
-    list_display = ['name', 'package_type', 'price', 'duration_weeks', 'feature_count', 'is_active', 'created_at']
+    list_display = ['name', 'package_type', 'course', 'price', 'duration_weeks', 'feature_count', 'is_active', 'created_at']
     list_filter = ['package_type', 'is_active', 'created_at']
     search_fields = ['name', 'description']
     list_editable = ['is_active', 'price']
@@ -31,7 +33,7 @@ class PackageAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Basic Information', {
-            'fields': ('name', 'package_type', 'description')
+            'fields': ('name', 'package_type', 'description', 'course')
         }),
         ('Pricing & Duration', {
             'fields': ('price', 'duration_weeks')
@@ -72,11 +74,12 @@ class PaymentAdmin(admin.ModelAdmin):
         'payment_option',
         'status',
         'created_at',
-        'payment_status_color'
+        'payment_status_color',
+        'course'
     ]
     list_filter = ['status', 'payment_option', 'created_at', 'package']
     search_fields = ['transaction_id', 'user__email', 'user__first_name', 'user__last_name', 'package__name']
-    readonly_fields = ['transaction_id', 'flutterwave_ref', 'created_at', 'updated_at']
+    readonly_fields = ['flutterwave_ref', 'created_at', 'updated_at'] # add the 'transaction_id', field back to this later
     inlines = [AddOnInline]
 
     fieldsets = (
@@ -86,7 +89,8 @@ class PaymentAdmin(admin.ModelAdmin):
                 'flutterwave_ref',
                 'total_amount',
                 'payment_option',
-                'status'
+                'status',
+                'course'
             )
         }),
         ('User & Package', {
