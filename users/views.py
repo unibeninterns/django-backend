@@ -11,21 +11,39 @@ from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils.translation import gettext_lazy as _
 from django.conf import settings
-from rest_framework import viewsets
-from rest_framework.decorators import action
+from rest_framework import viewsets, status
+from rest_framework.decorators import action, api_view, permission_classes
 from django.utils import timezone
-from rest_framework import status
-from .serializers import OTPVerificationSerializer
+from .serializers import OTPVerificationSerializer, TutorInvitationCreateSerializer
 from core.email_utils import send_html_email
 from .models import CustomUser, EmailOTP
 from dj_rest_auth.registration.views import RegisterView
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from datetime import timedelta
+from .serializers import CustomRegisterSerializer, UserSettingsSerializer
+from rest_framework.permissions import IsAdminUser
+from users.models import (
+    TutorProfile,
+    TutorInvitation,
+    TutorCourseAssignment,
+    CustomUser,
+    TutorCourse
+)
+from users.serializers import (
+    TutorProfileSerializer,
+    TutorInvitationSerializer,
+    TutorCourseAssignmentSerializer
+)
+from module.models import Course
+import csv
+from django.http import HttpResponse
+from openpyxl import Workbook
+
 
 
 class GoogleLogin(SocialLoginView):
@@ -268,6 +286,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
 
 class CustomRegisterView(RegisterView):
+    serializer_class = CustomRegisterSerializer
 
     @swagger_auto_schema(
         operation_summary="Register a new user",
@@ -300,17 +319,19 @@ class CustomRegisterView(RegisterView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user = serializer.save(self.request)
+        user = self.perform_create(serializer)
 
-        if not user.is_active:
-            return Response(
-                {"detail": "Registration successful. Please verify your email with the OTP."},
-                status=status.HTTP_201_CREATED
-            )
+        return Response(
+            {"detail": "Registration successful. Please verify your email with the OTP.",
+             "email": user.email},
+            status=status.HTTP_201_CREATED
+        )
 
-        return super().create(request, *args, **kwargs)
-    
+    def perform_create(self, serializer):
+        return serializer.save(request=self.request)
 
+        #
+        # return super().create(request, *args, **kwargs)
 
 class OTPVerificationView(APIView):
     permission_classes = [AllowAny]
@@ -330,8 +351,6 @@ class OTPVerificationView(APIView):
             tokens = serializer.save()
             return Response(tokens, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
 
 class ResendOTPView(APIView):
     permission_classes = [AllowAny]
@@ -377,3 +396,283 @@ class ResendOTPView(APIView):
         )
 
         return Response({"detail": "A new OTP has been sent."}, status=status.HTTP_200_OK)
+
+class UserSettingsViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        """Get current user settings"""
+        serializer = UserSettingsSerializer(request.user)
+        return Response(serializer.data)
+
+    def update(self, request):
+        """Update user info and settings"""
+        serializer = UserSettingsSerializer(instance=request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["post"])
+    def change_password(self, request):
+        """Endpoint specifically for changing password"""
+        user = request.user
+        old_password = request.data.get("old_password")
+        new_password = request.data.get("new_password")
+
+        if not user.check_password(old_password):
+            return Response({"detail": "Old password is incorrect."}, status=400)
+
+        user.set_password(new_password)
+        user.save()
+        return Response({"detail": "Password updated successfully."})
+
+
+class AdminTutorViewSet(viewsets.ViewSet):
+    permission_classes = [IsAdminUser]
+
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        total_tutors = TutorProfile.objects.count()
+        active_tutors = TutorProfile.objects.filter(is_active=True).count()
+        pending_invitations = TutorInvitation.objects.filter(
+            status=TutorInvitation.PENDING
+        ).count()
+
+        courses_with_tutors = (
+            TutorCourseAssignment.objects
+            .values('course')
+            .distinct()
+            .count()
+        )
+
+        return Response({
+            "total_tutors": total_tutors,
+            "active_tutors": active_tutors,
+            "pending_invitations": pending_invitations,
+            "courses_assigned_tutors": courses_with_tutors,
+        })
+
+    def list(self, request):
+        tutors = TutorProfile.objects.select_related('user').all()
+        serializer = TutorProfileSerializer(tutors, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='invite')
+    def invite(self, request):
+        email = request.data.get('email')
+        course_id = request.data.get('course')
+
+        if not email:
+            return Response(
+                {"detail": "Email is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        course = None
+        if course_id:
+            course = Course.objects.filter(id=course_id).first()
+
+        invitation = TutorInvitation.objects.create(
+            email=email,
+            course=course
+        )
+
+        serializer = TutorInvitationSerializer(invitation)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='assign')
+    def assign(self, request):
+        tutor_id = request.data.get('tutor')
+        course_id = request.data.get('course')
+
+        if not tutor_id or not course_id:
+            return Response(
+                {"detail": "Tutor and course are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        tutor = TutorProfile.objects.get(id=tutor_id)
+        course = Course.objects.get(id=course_id)
+
+        assignment, created = TutorCourseAssignment.objects.update_or_create(
+            tutor=tutor,
+            defaults={
+                "course": course,
+                "status": TutorCourseAssignment.ACTIVE,
+                "assigned_at": timezone.now(),
+                "completed_at": None,
+            }
+        )
+
+        serializer = TutorCourseAssignmentSerializer(assignment)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='export/csv')
+    def export_csv(self, request):
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="tutors.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow([
+            'Tutor Name',
+            'Email',
+            'Tutor Status',
+            'Course',
+            'Assignment Status',
+            'Assigned At',
+            'Completed At',
+        ])
+
+        tutors = TutorProfile.objects.select_related('user')
+
+        for tutor in tutors:
+            assignments = TutorCourseAssignment.objects.filter(tutor=tutor)
+
+            if assignments.exists():
+                for a in assignments:
+                    writer.writerow([
+                        tutor.user.get_full_name(),
+                        tutor.user.email,
+                        'Active' if tutor.is_active else 'Inactive',
+                        a.course.title if a.course else '',
+                        a.status,
+                        a.assigned_at,
+                        a.completed_at,
+                    ])
+            else:
+                writer.writerow([
+                    tutor.user.get_full_name(),
+                    tutor.user.email,
+                    'Active' if tutor.is_active else 'Inactive',
+                    '',
+                    '',
+                    '',
+                    '',
+                ])
+
+        return response
+
+    @action(detail=False, methods=['post'], url_path='invite')
+    def invite_tutor(self, request):
+        serializer = TutorInvitationCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data['email']
+
+        # Prevent duplicate active invites
+        if TutorInvitation.objects.filter(
+                email=email,
+                status=TutorInvitation.STATUS_PENDING
+        ).exists():
+            return Response(
+                {"detail": "An active invitation already exists for this email."},
+                status=400
+            )
+
+        invitation = TutorInvitation.objects.create(
+            email=email,
+            invited_by=request.user,
+            expires_at=timezone.now() + timedelta(days=7)
+        )
+
+        # TODO: send email with invite link
+        # link: /tutor/accept/{invitation.token}
+
+        return Response({
+            "message": "Tutor invitation sent.",
+            "token": str(invitation.token)
+        }, status=201)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def accept_tutor_invitation(request, token):
+    try:
+        invitation = TutorInvitation.objects.select_related('course').get(token=token)
+    except TutorInvitation.DoesNotExist:
+        return Response(
+            {"detail": "Invalid invitation token."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Expired
+    if invitation.is_expired():
+        if invitation.status == TutorInvitation.STATUS_PENDING:
+            invitation.status = TutorInvitation.STATUS_EXPIRED
+            invitation.save(update_fields=['status'])
+        return Response(
+            {"detail": "Invitation expired."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Already used
+    if invitation.status != TutorInvitation.STATUS_PENDING:
+        return Response(
+            {"detail": "Invitation already processed."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    password = request.data.get('password')
+    if not password:
+        return Response(
+            {"detail": "Password is required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Create or reuse user safely
+    user, created = CustomUser.objects.get_or_create(
+        email=invitation.email,
+        defaults={
+            "role": "tutor",
+            "is_active": True
+        }
+    )
+
+    if created:
+        user.set_password(password)
+        user.save()
+    else:
+        # If user exists, ensure role is tutor
+        if user.role != 'tutor':
+            user.role = 'tutor'
+            user.save(update_fields=['role'])
+
+    # Optional course assignment
+    if invitation.course:
+        TutorCourse.objects.get_or_create(
+            tutor=user,
+            course=invitation.course
+        )
+
+    invitation.tutor = user
+    invitation.status = TutorInvitation.STATUS_ACCEPTED
+    invitation.accepted_at = timezone.now()
+    invitation.save(update_fields=['tutor', 'status', 'accepted_at'])
+
+    return Response(
+        {
+            "detail": "Invitation accepted successfully.",
+            "tutor_id": user.id,
+            "course_assigned": invitation.course.id if invitation.course else None
+        },
+        status=status.HTTP_200_OK
+    )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def reject_tutor_invitation(request, token):
+    try:
+        invitation = TutorInvitation.objects.get(token=token)
+    except TutorInvitation.DoesNotExist:
+        return Response({"detail": "Invalid invitation."}, status=404)
+
+    if invitation.status != TutorInvitation.STATUS_PENDING:
+        return Response({"detail": "Invitation already processed."}, status=400)
+
+    invitation.status = TutorInvitation.STATUS_REJECTED
+    invitation.rejected_at = timezone.now()
+    invitation.save(update_fields=['status', 'rejected_at'])
+
+    return Response({"message": "Invitation rejected."})
+

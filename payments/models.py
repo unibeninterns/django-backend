@@ -5,11 +5,13 @@ import uuid
 from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Sum
+from django.db.models.signals import m2m_changed
+from django.dispatch import receiver
 
 
 now = timezone.now()
 
-
+# can't remember what this model is for
 class Feature(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
@@ -19,12 +21,29 @@ class Feature(models.Model):
     def __str__(self):
         return self.name
 
+class AddOn(models.Model):
+    name = models.CharField(max_length=100)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    description = models.TextField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} - ₦{self.price}"
 
 class Package(models.Model):
     PACKAGE_TYPES = (
         ('basic', 'Basic'),
         ('premium', 'Premium'),
         ('addon', 'Add-on'),
+    )
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name="packages",
+        null=True,
+        blank=True,
     )
 
     name = models.CharField(max_length=100)
@@ -48,17 +67,6 @@ class Package(models.Model):
 
     def get_duration_days(self):
         return self.duration_weeks * 7
-
-
-class AddOn(models.Model):
-    name = models.CharField(max_length=100)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    description = models.TextField()
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.name} - ₦{self.price}"
 
 
 class Payment(models.Model):
@@ -90,12 +98,12 @@ class Payment(models.Model):
         related_name='payments'
     )
 
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
 
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     payment_option = models.CharField(max_length=50, choices=PAYMENT_OPTIONS)
     transaction_id = models.CharField(max_length=100, unique=True)
     flutterwave_ref = models.CharField(max_length=100, blank=True, null=True)
@@ -129,21 +137,21 @@ class Payment(models.Model):
         verbose_name = "Payment"
         verbose_name_plural = "Payments"
 
-    # def __str__(self):
-    #     return f"{self.user.email} - {self.course.title} - {self.status}"
-
 
 class Enrollment(models.Model):
     STATUS_CHOICES = (
         ('active', 'Active'),
         ('completed', 'Completed'),
-        ('dropped', 'Dropped'),
+        ('inactive', 'Inactive'),
         ('pending_payment', 'Pending Payment'),
+        ('registered', 'Registered'),
+        ('suspended', 'Suspended'),
+        ('enrolled', 'Enrolled'),
     )
 
     # Package enrollment only (no course)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    package = models.ForeignKey(Package, on_delete=models.CASCADE)
+    package = models.ForeignKey(Package, on_delete=models.CASCADE, null=True) # change the null field to false in production
     payment = models.OneToOneField(Payment, on_delete=models.SET_NULL, null=True, blank=True)
     add_ons = models.ManyToManyField(AddOn, blank=True)
 
@@ -169,3 +177,62 @@ class Enrollment(models.Model):
         return self.status == 'active' and (
                 not self.expires_at or self.expires_at > timezone.now()
         )
+
+class Payout(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    )
+
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payouts'
+    )
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payouts'
+    )
+
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_method = models.CharField(max_length=50)  # bank, wallet, etc.
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    reference = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    bank_code = models.CharField(max_length=10)  # e.g., '044' for Access Bank
+    account_number = models.CharField(max_length=20)  # e.g., '0690000000'
+    currency = models.CharField(max_length=3, default='NGN')
+
+    # Store the Flutterwave specific ID for tracking
+    flutterwave_id = models.CharField(max_length=100, blank=True, null=True)
+
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = "Payout"
+        verbose_name_plural = "Payouts"
+
+    def __str__(self):
+        return f"Payout ₦{self.amount} → {self.recipient}"
+
+@receiver(m2m_changed, sender=Payment.add_ons.through)
+def update_payment_total(sender, instance, action, **kwargs):
+    # This triggers AFTER the many-to-many relationship is saved
+    if action in ['post_add', 'post_remove', 'post_clear']:
+        total = instance.package.price if instance.package else 0
+        # Now we can safely see the add-ons!
+        for add_on in instance.add_ons.all():
+            total += add_on.price
+
+        # We use .update() to avoid re-triggering the save() method
+        Payment.objects.filter(pk=instance.pk).update(total_amount=total, amount=total)

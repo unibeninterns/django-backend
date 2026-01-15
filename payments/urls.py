@@ -1,14 +1,22 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import PaymentViewSet, EnrollmentViewSet, PackageViewSet, AddOnViewSet
+from .views import (PaymentViewSet, EnrollmentViewSet, PackageViewSet, AddOnViewSet, AdminPayoutViewSet,
+                    AdminPaymentStatsViewSet, AdminAnalyticsViewSet, AdminCertificatePaymentViewSet, AdminCertificateViewSet, AdminCertificateRequestViewSet)
 from .webhooks import flutterwave_webhook
 
 
 router = DefaultRouter()
-# router.register(r'payments', PaymentViewSet, basename='payment')
+router.register(r'purchase', PaymentViewSet, basename='payment')
 router.register(r'enrollments', EnrollmentViewSet, basename='enrollment')
 router.register(r'packages', PackageViewSet, basename='package')
 router.register(r'addons', AddOnViewSet, basename='addon')
+router.register( r'admin-payouts', AdminPayoutViewSet, basename='admin-payouts')
+router.register(r'admin-payments-stats', AdminPaymentStatsViewSet, basename='admin-payments-stats')
+router.register(r'admin-analytics', AdminAnalyticsViewSet, basename='admin-analytics')
+router.register(r'admin-cert-request', AdminCertificateRequestViewSet, basename='admin-cert-request')
+router.register(r'admin-cert', AdminCertificateViewSet, basename='admin-cert')
+router.register(r'cert-payment', AdminCertificatePaymentViewSet, basename='cert-payment')
+
 
 urlpatterns = [
     path('', include(router.urls)),

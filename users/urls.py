@@ -1,13 +1,20 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
-from .views import UserListView, UserDetailView, AdminLoginView, UserViewSet
+from .views import UserListView, UserDetailView, AdminLoginView, UserViewSet, UserSettingsViewSet, AdminTutorViewSet
 from .views import CustomRegisterView
 from .views import OTPVerificationView
 from .views import ResendOTPView
 
 
 router = DefaultRouter()
-router.register(r'users', UserViewSet, basename='user') 
+router.register(r'users', UserViewSet, basename='user')
+router.register(r'settings', UserSettingsViewSet, basename='user-settings')
+router.register(
+    r'admin-tutors',
+    AdminTutorViewSet,
+    basename='admin-tutors'
+)
+
 
 urlpatterns = [
     path('account/users/', UserListView.as_view(), name='user-list'),

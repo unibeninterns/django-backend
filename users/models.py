@@ -4,10 +4,15 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 import random
 from datetime import timedelta
+from django.utils import timezone
+import uuid
+from django.conf import settings
+from module.models import Course
 
 ROLE_CHOICES = (
     ('student', 'Student'),
     ('admin', 'Admin'),
+    ('tutor', 'Tutor'),
 )
 
 # Create your models here.
@@ -82,6 +87,12 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='student')
     cohort = models.CharField(max_length=50, blank=True, null=True)
 
+    # **New fields for settings**
+    profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
+    phone_number = models.CharField(max_length=15, blank=True, null=True)
+    email_alerts = models.BooleanField(default=True)
+    platform_alerts = models.BooleanField(default=True)
+
     objects = CustomAccountManager()
 
     USERNAME_FIELD = "email"
@@ -94,6 +105,153 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.username
+
+
+class TutorProfile(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="tutor_profile"
+    )
+
+
+    bio = models.TextField(blank=True)
+
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.get_full_name()} ({self.user.email})"
+
+class TutorCourseAssignment(models.Model):
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('completed', 'Completed'),
+        ('pending', 'Pending'),
+    )
+
+    tutor = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='course_assignment',
+        # This filters the options in the Django Admin and Forms
+        limit_choices_to={'role': 'tutor'}
+    )
+
+    course = models.ForeignKey(
+        'module.Course',
+        on_delete=models.CASCADE,
+        related_name='tutor_assignment'
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending'
+    )
+
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.tutor.email} → {self.course.title}"
+
+class TutorInvitation(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_REJECTED = 'rejected'
+    STATUS_EXPIRED = 'expired'
+
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_REJECTED, 'Rejected'),
+        (STATUS_EXPIRED, 'Expired'),
+    )
+
+    email = models.EmailField()
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='sent_tutor_invites'
+    )
+
+    course = models.ForeignKey(
+        'module.Course',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='tutor_invitations'
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending'
+    )
+
+    sent_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField()
+    rejected_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Invitation to {self.email} ({self.status})"
+
+    def is_valid(self):
+        return (
+                self.status == self.STATUS_PENDING
+                and timezone.now() <= self.expires_at
+        )
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+class TutorCourse(models.Model):
+    tutor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        limit_choices_to={'role': 'tutor'},
+        related_name='course_assignments'
+    )
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='tutor_assignments'
+    )
+
+    STATUS_ACTIVE = 'active'
+    STATUS_COMPLETED = 'completed'
+    STATUS_PENDING = 'pending'
+
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_COMPLETED, 'Completed'),
+        (STATUS_PENDING, 'Pending'),
+    ]
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_ACTIVE
+    )
+
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    unassigned_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('tutor', 'course')
+        verbose_name = 'Tutor Course Assignment'
+        verbose_name_plural = 'Tutor Course Assignments'
+
+    def __str__(self):
+        return f"{self.tutor.email} → {self.course.title}"
+
 
 
 class EmailOTP(models.Model):
@@ -112,4 +270,4 @@ class EmailOTP(models.Model):
 
     def __str__(self):
         return f"OTP for {self.user.email} - {self.otp_code}"
-    
+

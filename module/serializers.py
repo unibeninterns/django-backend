@@ -1,16 +1,23 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from .models import *
 from core.common.utils.progress import get_content_state
 from progresse.models import QuizProgress
+from core.common.utils.progress_states import ContentState
+from users.models import CustomUser, TutorCourse
 
-class CourseSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Course
-        fields = '__all__'
+User = get_user_model()
 
 class ModuleSerializer(serializers.ModelSerializer):
     previous_module_id = serializers.IntegerField(read_only=True, allow_null=True)
     next_module_id = serializers.IntegerField(read_only=True, allow_null=True)
+
+    lesson_count = serializers.SerializerMethodField()
+    quiz_count = serializers.SerializerMethodField()
+    total_questions = serializers.SerializerMethodField()
+    average_score = serializers.SerializerMethodField()
+    completion_percentage = serializers.SerializerMethodField()
+    lessons = serializers.SerializerMethodField()
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -26,8 +33,101 @@ class ModuleSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'course', 'order', 'title', 'week_number', 'description',
             'requires_all_lessons', 'requires_all_quizzes', 'requires_project_submission',
-            'requires_live_session_attendance', 'previous_module_id', 'next_module_id'
+            'requires_live_session_attendance', 'previous_module_id', 'next_module_id',
+            'lesson_count', 'quiz_count', 'total_questions', 'average_score', 'completion_percentage', 'lessons'
         ]
+
+    def get_lesson_count(self, obj):
+        return obj.lessons.count()
+
+    def get_quiz_count(self, obj):
+        return Quiz.objects.filter(module=obj).count()
+
+    def get_total_questions(self, obj):
+        return Question.objects.filter(quiz__module=obj).count()
+
+    def get_average_score(self, obj):
+        progress_qs = QuizProgress.objects.filter(quiz__module=obj, state=ContentState.COMPLETED.value)
+        if not progress_qs.exists():
+            return 0
+        return round(progress_qs.aggregate(avg_score=models.Avg('latest_score'))['avg_score'] or 0, 2)
+
+    def get_completion_percentage(self, obj):
+        total_students = CustomUser.objects.filter(role='student').count()
+        if total_students == 0:
+            return 0
+        completed = QuizProgress.objects.filter(quiz__module=obj, state=ContentState.COMPLETED.value).values(
+            'student').distinct().count()
+        return round((completed / total_students) * 100, 2)
+
+    def get_lessons(self, obj):
+        return LessonSerializer(obj.lessons.all(), many=True).data
+
+class CourseSerializer(serializers.ModelSerializer):
+    total_quizzes = serializers.SerializerMethodField()
+    published_quizzes = serializers.SerializerMethodField()
+    draft_quizzes = serializers.SerializerMethodField()
+    average_completion = serializers.SerializerMethodField()
+    modules = ModuleSerializer(many=True, read_only=True)
+    tutors = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=User.objects.filter(role='tutor'),
+        required=False
+    )
+
+    class Meta:
+        model = Course
+        fields = [
+            'id', 'title', 'description', 'duration_weeks', 'start_date', 'end_date',
+            'total_quizzes', 'published_quizzes', 'draft_quizzes', 'average_completion',
+            'modules', 'tutors'
+        ]
+
+    def create(self, validated_data):
+        # 1. Remove tutors from validated_data before saving the course
+        tutors = validated_data.pop('tutors', [])
+
+        # 2. Create the course first
+        course = Course.objects.create(**validated_data)
+
+        # 3. Manually create the TutorCourse relationships
+        for tutor in tutors:
+            TutorCourse.objects.create(
+                tutor=tutor,
+                course=course,
+                status='active'  # You can set default status here
+            )
+
+        return course
+
+    def update(self, instance, validated_data):
+        tutors = validated_data.pop('tutors', None)
+        instance = super().update(instance, validated_data)
+
+        if tutors is not None:
+            # Sync tutors: remove old ones not in the list, add new ones
+            instance.tutor_assignments.all().delete()  # Simple sync approach
+            for tutor in tutors:
+                TutorCourse.objects.create(tutor=tutor, course=instance)
+
+        return instance
+
+    def get_total_quizzes(self, obj):
+        return Quiz.objects.filter(module__course=obj).count()
+
+    def get_published_quizzes(self, obj):
+        return Quiz.objects.filter(module__course=obj, is_required_for_module=True).count()
+
+    def get_draft_quizzes(self, obj):
+        return Quiz.objects.filter(module__course=obj, is_required_for_module=False).count()
+
+    def get_average_completion(self, obj):
+        # Average completion based on completed attempts
+        progress_qs = QuizProgress.objects.filter(quiz__module__course=obj, state=ContentState.COMPLETED.value)
+        total_attempts = progress_qs.count()
+        if total_attempts == 0:
+            return 0
+        return round(progress_qs.aggregate(avg_score=models.Avg('latest_score'))['avg_score'] or 0, 2)
 
 class LessonNoteSerializer(serializers.ModelSerializer):
     class Meta:
@@ -35,16 +135,72 @@ class LessonNoteSerializer(serializers.ModelSerializer):
         fields = ['id', 'student', 'lesson', 'note', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at']
 
+class QuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Question
+        fields = '__all__'
+        ordering = ['order']
+
+class StudentQuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Question
+        # Explicitly exclude 'correct_answer' and 'order'
+        fields = ['id', 'text', 'type', 'options']
+
+class QuizSerializer(serializers.ModelSerializer):
+
+    current_state = serializers.SerializerMethodField()
+    attempts = serializers.SerializerMethodField()
+    is_passed = serializers.SerializerMethodField()
+    question_count = serializers.SerializerMethodField()
+    questions = QuestionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Quiz
+        fields = [
+            'id', 'module', 'lesson', 'title', 'passing_score', 'max_attempts',
+            'is_required_for_module', 'current_state', 'attempts', 'is_passed',
+            'question_count', 'questions'
+        ]
+
+    def get_current_state(self, obj):
+        # 1. Safely get request
+        request = self.context.get('request')
+
+        # 2. Check if request exists and user is logged in
+        if request and request.user.is_authenticated:
+            progress = QuizProgress.objects.filter(student=request.user, quiz=obj).first()
+            return progress.state if progress else None
+        return None
+
+    def get_attempts(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            progress = QuizProgress.objects.filter(student=request.user, quiz=obj).first()
+            return progress.attempts if progress else 0
+        return 0
+
+    def get_is_passed(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            progress = QuizProgress.objects.filter(student=request.user, quiz=obj).first()
+            return progress.is_passed if progress else False
+        return False
+
+    def get_question_count(self, obj):
+        return obj.questions.count()
+
 class LessonSerializer(serializers.ModelSerializer):
     previous_lesson_id = serializers.IntegerField(read_only=True, allow_null=True)
     next_lesson_id = serializers.IntegerField(read_only=True, allow_null=True)
     notes = LessonNoteSerializer(read_only=True, many=True)  # List of all notes for the user
+    quiz = QuizSerializer(read_only=True)
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'module', 'title', 'order', 'has_video', 'video_duration_minutes',
-            'minimum_watch_percentage', 'previous_lesson_id', 'next_lesson_id', 'notes'
+            'minimum_watch_percentage', 'previous_lesson_id', 'next_lesson_id', 'notes', 'quiz'
         ]
 
     def get_notes(self, obj):
@@ -54,52 +210,25 @@ class LessonSerializer(serializers.ModelSerializer):
         return []
 
 class ContentItemSerializer(serializers.ModelSerializer):
+    current_state = serializers.SerializerMethodField()
     class Meta:
         model = ContentItem
         fields = '__all__'
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        context = self.context
-        data['current_state'] = context.get('current_state', data.get('current_state', 'locked'))
-        return data
-
-class QuizSerializer(serializers.ModelSerializer):
-    current_state = serializers.SerializerMethodField()
-    attempts = serializers.SerializerMethodField()
-    is_passed = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Quiz
-        fields = [
-            'id', 'module', 'lesson', 'title', 'passing_score', 'max_attempts',
-            'is_required_for_module', 'current_state', 'attempts', 'is_passed'
-        ]
-
     def get_current_state(self, obj):
-        user = self.context['request'].user
-        progress = QuizProgress.objects.filter(student=user, quiz=obj).first()
-        return progress.state if progress else None
+        # This runs for EVERY item in a list AND for a single retrieve
+        user = self.context.get('request').user
+        if user and user.is_authenticated:
+            # Call your central logic here
+            return get_content_state(user, 'content_item', obj.id).value
+        return 'locked'
 
-    def get_attempts(self, obj):
-        user = self.context['request'].user
-        progress = QuizProgress.objects.filter(student=user, quiz=obj).first()
-        return progress.attempts if progress else 0
-
-    def get_is_passed(self, obj):
-        user = self.context['request'].user
-        progress = QuizProgress.objects.filter(student=user, quiz=obj).first()
-        return progress.is_passed if progress else False
-
-class QuestionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Question
-        fields = '__all__'
 
 class QuizSubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuizSubmission
-        fields = '__all__'
+        fields = ['id', 'quiz', 'score', 'submitted_at']
+        read_only_fields = ['score', 'submitted_at']
 
 class AnswerSerializer(serializers.ModelSerializer):
     submission = serializers.PrimaryKeyRelatedField(
@@ -137,18 +266,6 @@ class UserSettingsSerializer(serializers.ModelSerializer):
         fields = ['id', 'notifications_enabled', 'theme', 'email_alerts']
         read_only_fields = ['id']
 
-    def create(self, validated_data):
-        user = self.context['request'].user
-        settings, created = UserSettings.objects.get_or_create(user=user, defaults=validated_data)
-        return settings
-
-    def update(self, instance, validated_data):
-        instance.notifications_enabled = validated_data.get('notifications_enabled', instance.notifications_enabled)
-        instance.theme = validated_data.get('theme', instance.theme)
-        instance.email_alerts = validated_data.get('email_alerts', instance.email_alerts)
-        instance.save()
-        return instance
-
 class ActivityLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActivityLog
@@ -160,13 +277,144 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 class CertificateRequestSerializer(serializers.ModelSerializer):
+    # Make these read-only so the student can't "self-approve" or request for others
+    student = serializers.StringRelatedField(read_only=True)
+
     class Meta:
         model = CertificateRequest
-        fields = '__all__'
+        fields = ['id', 'course', 'student', 'status', 'requested_at', 'reason']
 
 class AnnouncementSerializer(serializers.ModelSerializer):
     created_by = serializers.StringRelatedField(read_only=True)
 
     class Meta:
         model = Announcement
-        fields = ["id", "title", "message", "created_at", "updated_at", "created_by"]
+        fields = ["id", "title", "message", "audience", "created_at", "updated_at", "created_by"]
+
+class AdminCourseQuizStatsSerializer(serializers.Serializer):
+    course_id = serializers.IntegerField()
+    course_title = serializers.CharField()
+
+    module_count = serializers.IntegerField()
+    quiz_count = serializers.IntegerField()
+    total_questions = serializers.IntegerField()
+
+    average_score = serializers.FloatField()
+    completion_percentage = serializers.FloatField()
+
+class AdminQuizSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Quiz
+        fields = [
+            'id',
+            'title',
+            'lesson',
+            'module',
+            'passing_score',
+            'max_attempts',
+            'is_required_for_module',
+            'status',
+            'published_at',
+        ]
+
+class CertificateSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(
+        source='student.get_full_name',
+        read_only=True
+    )
+    course_title = serializers.CharField(
+        source='course.title',
+        read_only=True
+    )
+    pdf_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Certificate
+        fields = [
+            'id',
+            'student_name',
+            'course_title',
+            'issued_at',
+            'is_revoked',
+            'revoked_at',
+            'pdf_url'
+        ]
+
+    def get_pdf_url(self, obj):
+        request = self.context.get('request')
+        if obj.pdf_file and request:
+            return request.build_absolute_uri(obj.pdf_file.url)
+        return None
+
+class CertificateVerificationSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(
+        source='student.get_full_name',
+        read_only=True
+    )
+    course_title = serializers.CharField(
+        source='course.title',
+        read_only=True
+    )
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Certificate
+        fields = [
+            'id',
+            'verification_code',
+            'student_name',
+            'course_title',
+            'issued_at',
+            'status'
+        ]
+
+    def get_status(self, obj):
+        if obj.is_revoked:
+            return "revoked"
+        return "valid"
+
+class ResourceSerializer(serializers.ModelSerializer):
+    title = serializers.CharField(source='content_item.title', read_only=True)
+    type = serializers.CharField(source='content_item.type', read_only=True)
+    file = serializers.FileField(source='content_item.file', read_only=True)
+    external_url = serializers.URLField(source='content_item.external_url', read_only=True)
+
+    class Meta:
+        model = Resource
+        fields = [
+            'id',
+            'title',
+            'type',
+            'file',
+            'external_url',
+            'visibility',
+            'course',
+            'module',
+        ]
+
+class CourseOverviewSerializer(serializers.ModelSerializer):
+    objectives = serializers.StringRelatedField(many=True)
+    tutors = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Course
+        fields = [
+            'id',
+            'title',
+            'description',
+            'objectives',
+            'certificate_enabled',
+            'certificate_request_message',
+            'tutors',
+        ]
+
+    def get_tutors(self, obj):
+        tutors = obj.tutor_assignments.filter(is_active=True)
+        return [
+            {
+                'id': tc.tutor.id,
+                'name': tc.tutor.get_full_name(),
+                'email': tc.tutor.email
+            }
+            for tc in tutors
+        ]
