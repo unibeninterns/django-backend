@@ -2,7 +2,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from core.common.utils.progress_states import ContentState
 from .models import ContentProgress, LessonProgress, ModuleCompletion, QuizProgress, ProjectProgress
-from module.models import ContentItem, Lesson, Module, CapstoneInstructions
+from module.models import ContentItem, Lesson, Module, CapstoneInstructions, FinalExam
 
 @receiver(post_save, sender=ContentProgress)
 def unlock_next_content_item(sender, instance, **kwargs):
@@ -16,8 +16,10 @@ def unlock_next_content_item(sender, instance, **kwargs):
             lesson=current_item.lesson,
             order__gt=current_item.order
         ).order_by('order').first()
+        print(current_item.lesson.id)
 
         if next_item:
+            print(f"Next item found: {next_item.id}")
             progress, _ = ContentProgress.objects.get_or_create(
                 student=user,
                 content_item=next_item
@@ -25,6 +27,19 @@ def unlock_next_content_item(sender, instance, **kwargs):
             # Only unlock if it's currently LOCKED
             if progress.state == ContentState.LOCKED.value:
                 progress.transition_to(ContentState.AVAILABLE)
+        else:
+            # 2. No Next Item? -> Lesson is Complete
+            from progresse.models import LessonProgress
+
+            lesson_progress, _ = LessonProgress.objects.get_or_create(
+                student=user,
+                lesson=current_item.lesson
+            )
+
+            # Only update if not already completed
+            if lesson_progress.state != ContentState.COMPLETED.value:
+                lesson_progress.transition_to(ContentState.IN_PROGRESS)
+                lesson_progress.transition_to(ContentState.COMPLETED)
 
 
 @receiver(post_save, sender=LessonProgress)
@@ -48,7 +63,7 @@ def unlock_next_lesson(sender, instance, **kwargs):
                 progress.transition_to(ContentState.AVAILABLE)
 
                 # IMPORTANT: Also unlock the FIRST ContentItem of this new lesson
-                first_item = next_lesson.contentitem_set.order_by('order').first()
+                first_item = next_lesson.content_items.order_by('order').first()
                 if first_item:
                     cp, _ = ContentProgress.objects.get_or_create(student=user, content_item=first_item)
                     if cp.state == ContentState.LOCKED.value:
@@ -58,6 +73,19 @@ def unlock_next_lesson(sender, instance, **kwargs):
                 elif hasattr(next_lesson, 'quiz'):
                     qp, _ = QuizProgress.objects.get_or_create(student=user, quiz=next_lesson.quiz)
                     if qp.state == ContentState.LOCKED.value:qp.transition_to(ContentState.AVAILABLE)
+
+        else:
+            # 2. No Next Lesson? -> Module is Complete
+            from progresse.models import ModuleCompletion
+
+            module_progress, _ = ModuleCompletion.objects.get_or_create(
+                student=user,
+                module=current_lesson.module
+            )
+
+            # Only update if not already completed
+            if module_progress.state != ContentState.COMPLETED.value:
+                module_progress.transition_to(ContentState.COMPLETED)
 
 
 @receiver(post_save, sender=ModuleCompletion)
@@ -93,7 +121,7 @@ def unlock_next_module(sender, instance, **kwargs):
 
                     # --- NEW QUIZ LOGIC FOR MODULES ---
                     # Check if the first lesson has content items
-                    first_item = first_lesson.contentitem_set.order_by('order').first()
+                    first_item = first_lesson.content_items.order_by('order').first()
                     if first_item:
                         cp, _ = ContentProgress.objects.get_or_create(
                             student=user,

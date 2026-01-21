@@ -11,21 +11,23 @@ from django.dispatch import receiver
 
 now = timezone.now()
 
-# can't remember what this model is for
 class Feature(models.Model):
-    name = models.CharField(max_length=100)
+    FEATURE_CHOICES = (
+        ('one-on-one research clinic', 'One-on-One research Clinic'),
+        ('capstone project feedback', 'Capstone Project Feedback'),
+        ('premium add-on', 'Premium Add-on'),
+    )
+
+    name = models.CharField(max_length=30, choices=FEATURE_CHOICES, null=True)
     description = models.TextField(blank=True)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
 
 class AddOn(models.Model):
-    name = models.CharField(max_length=100)
+    feature = models.ForeignKey(Feature, on_delete=models.CASCADE, null=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    description = models.TextField()
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -63,7 +65,7 @@ class Package(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.name} - ₦{self.price}"
+        return f"{self.id} -> {self.name} - ₦{self.price}"
 
     def get_duration_days(self):
         return self.duration_weeks * 7
@@ -151,7 +153,7 @@ class Enrollment(models.Model):
 
     # Package enrollment only (no course)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    package = models.ForeignKey(Package, on_delete=models.CASCADE, null=True) # change the null field to false in production
+    package = models.ForeignKey(Package, on_delete=models.CASCADE, null=True) # TODO: change the null field to false in production
     payment = models.OneToOneField(Payment, on_delete=models.SET_NULL, null=True, blank=True)
     add_ons = models.ManyToManyField(AddOn, blank=True)
 
@@ -169,7 +171,7 @@ class Enrollment(models.Model):
     def save(self, *args, **kwargs):
         # Set expiration date when status becomes active
         if self.status == 'active' and not self.expires_at and self.package:
-            self.expires_at = timezone.now() + timedelta(days=self.package.get_duration_days())
+            self.expires_at = timezone.now() + timedelta(days=self.package.get_duration_days() + 1)
         super().save(*args, **kwargs)
 
     @property
@@ -209,8 +211,8 @@ class Payout(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
-    bank_code = models.CharField(max_length=10)  # e.g., '044' for Access Bank
-    account_number = models.CharField(max_length=20)  # e.g., '0690000000'
+    bank_code = models.CharField(max_length=10, default='')  # e.g., '044' for Access Bank
+    account_number = models.CharField(max_length=20, default='')  # e.g., '0690000000'
     currency = models.CharField(max_length=3, default='NGN')
 
     # Store the Flutterwave specific ID for tracking

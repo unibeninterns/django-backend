@@ -41,10 +41,15 @@ router.register(r'admin-courses-stats', AdminCourseStatsViewSet, basename='admin
 
 router.register(r'admin/certificates/analytics', AdminCertificateAnalyticsViewSet, basename='admin-certificate-analytics')
 
+router.register(r'support', SupportTicketViewSet, basename='support')
+
 # router.register(r'certificate-analytics', AdminCertificateAnalyticsViewSet, basename='cert-analytics')
 
 router.register(r'admin-resources', AdminResourceViewSet, basename='admin-resources')
 
+router.register(r'exams', FinalExamViewSet, basename='final-exam')
+
+router.register(r'exam-questions', ExamQuestionViewSet, basename='exam-questions')
 
 # router.register(
 #     r'quiz-manage',
@@ -66,4 +71,6 @@ urlpatterns = [
     path('certificates/export/csv/', CertificateRequestsCSVExportView.as_view(), name='certificate-export-csv'),
     path('notifications/analytics/', NotificationAnalyticsView.as_view(), name='notification-analytics'),
     path('announcements-analytics/', AnnouncementAnalyticsView.as_view(), name='announcements-analytics'),
+    path('courses/<int:course_id>/transcript/', DownloadTranscriptView.as_view(), name='download-transcript'),
+    path('verify/<int:enrollment_id>/', VerifyCertificateView.as_view(), name='verify-certificate'),
 ]

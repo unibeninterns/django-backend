@@ -5,6 +5,7 @@ from progresse.models import QuizProgress
 from module.models import *
 import logging
 from users.models import CustomUser
+from payments.models import Enrollment
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,49 @@ class CanCompleteContent(permissions.BasePermission):
     def _get_content_type(self, obj):
         return obj.__class__.__name__.lower()
 
+
+class IsPremiumStudent(permissions.BasePermission):
+    """
+    Allows access only to:
+    1. Admins (Full Access)
+    2. Premium Students (Linked to the specific course)
+    """
+    message = "This content is exclusive to Premium students. Please upgrade to access."
+
+    def has_object_permission(self, request, view, obj):
+        # 0. Safety Check: User must be logged in
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        # 1. Admin Override (Always allow admins)
+        # Check both 'is_staff' (Django default) and your custom 'role' field just to be safe
+        if request.user.is_staff or getattr(request.user, 'role', '') == 'admin':
+            return True
+
+        # 2. Determine the Course object dynamically
+        # Case A: obj is FinalExam (it has a 'course' field)
+        course = getattr(obj, 'course', None)
+
+        # Case B: obj is ExamQuestion (it has an 'exam' field, which has 'course')
+        if hasattr(obj, 'exam'):
+            course = obj.exam.course
+
+        # Case C: Safety fallback
+        if not course:
+            return False
+
+        # 3. Check Enrollment & Package
+        # We look for an enrollment for THIS user and THIS specific course
+        enrollment = Enrollment.objects.filter(
+            user=request.user,
+            course=course
+        ).select_related('package').first()
+
+        if not enrollment:
+            return False
+
+        # 4. THE PREMIUM CHECK
+        return enrollment.package.package_type == 'premium'
 
 # class CanAccessLesson(CanAccessContent):
 #     """Lesson-specific access permission."""

@@ -137,7 +137,7 @@ class Lesson(models.Model):
         ).order_by('order').first()
 
     def __str__(self):
-        return f"Week: {self.module.week_number}| (Title {self.title})"
+        return f"id - {self.id} in Week: {self.module.week_number}| (Title: {self.title}) | Module - {self.module.id}"
 
 class LessonNote(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='lesson_notes')
@@ -164,6 +164,7 @@ class ContentItem(models.Model):
     external_url = models.URLField(null=True, blank=True)
     duration = models.DurationField(null=True, blank=True)
     content = models.TextField(null=True, blank=True)
+    order = models.PositiveIntegerField(null=True)
 
     def __str__(self):
         try:
@@ -171,7 +172,7 @@ class ContentItem(models.Model):
         except AttributeError:
             course_title = "No Course Assigned"
 
-        return f"{self.title} (ID: {self.id}) | {course_title}"
+        return f"{self.title} (ID: {self.id}) | [Lesson: {self.lesson.title}, ID: {self.lesson.id}]"
 
 class Quiz(models.Model):
     id = models.AutoField(primary_key=True)
@@ -238,9 +239,18 @@ class Quiz(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        lesson_order = self.lesson.order if self.lesson else 'N/A'
-        module_week = self.module.week_number if self.module else 'N/A'
-        return f"Quiz: {self.id} | {self.title} for Lesson {lesson_order} | Module {module_week}"
+        if self.lesson:
+            # Case 1: Quiz belongs to a Lesson
+            # We use 'getattr' or simple checks to be safe, but assuming a Lesson always has a Module:
+            return f"Quiz: {self.id} | {self.title} (Lesson {self.lesson.order} - In Week {self.lesson.module.week_number})"
+
+        elif self.module:
+            # Case 2: Quiz belongs directly to a Module
+            return f"Quiz: {self.id} | {self.title} (Module Quiz - Week {self.module.week_number})"
+
+        else:
+            # Case 3: Fallback (e.g. during creation)
+            return f"Quiz: {self.id} | {self.title} (Unassigned)"
 
     class Meta:
         verbose_name = "Quiz"
@@ -808,3 +818,177 @@ class ResourceActivity(models.Model):
             models.Index(fields=['user']),
             models.Index(fields=['created_at']),
         ]
+
+class ResearchClinic(models.Model):
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    )
+
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='clinic_sessions')
+    course = models.ForeignKey(Course, on_delete=models.CASCADE)
+    # The tutor is assigned later by an Admin
+    tutor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='clinic_tutor'
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Clinic: {self.student} - {self.course.title}"
+
+class CapstoneFeedbackRequest(models.Model):
+    STATUS_CHOICES = (
+        ('paid', 'Paid - Pending Submission'),
+        ('requested', 'Feedback Requested'),
+        ('in_review', 'In Review'),
+        ('completed', 'Feedback Given'),
+    )
+
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    course = models.ForeignKey(Course, on_delete=models.CASCADE)
+    # We link the actual project later, once they submit it
+    project = models.OneToOneField(
+        'CapstoneProject',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='feedback_request'
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='paid')
+    purchased_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Feedback Request: {self.student} ({self.status})"
+
+
+class FinalExam(models.Model):
+    # OneToOne ensures a course can only have ONE Final Exam
+    course = models.OneToOneField(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='final_exam'
+    )
+    title = models.CharField(max_length=200, default="Final Exam")
+    description = models.TextField(blank=True)
+    duration_minutes = models.IntegerField(default=60, help_text="Time allowed in minutes")
+    passing_score = models.FloatField(default=70.0)
+
+    # Settings
+    is_active = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Final Exam for {self.course.title}"
+
+
+class ExamQuestion(models.Model):
+    QUESTION_TYPES = (
+        ('single_choice', 'Single Choice'),
+        ('multi_choice', 'Multiple Choice'),
+        ('essay', 'Essay'),
+    )
+
+    exam = models.ForeignKey(FinalExam, on_delete=models.CASCADE, related_name='questions')
+    text = models.TextField()
+    question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='single_choice')
+    points = models.IntegerField(default=10)
+    order = models.IntegerField(default=0)
+
+    # For Simple Choice questions, store options as JSON:
+    # {"A": "Option 1", "B": "Option 2", "correct": "A"}
+    options = models.JSONField(default=dict, blank=True)
+
+    def __str__(self):
+        return f"{self.exam.course.title} - Q: {self.text[:30]}"
+
+    def clean(self):
+        """
+        Validate that 'correct' answer exists in options for choice questions.
+        """
+        if self.question_type in ['single_choice', 'multi_choice']:
+            if not self.options or 'correct' not in self.options:
+                raise ValidationError("Choice questions must have a 'correct' key in the options JSON.")
+
+            # Optional: Ensure the correct answer is actually one of the options
+            correct = self.options['correct']
+            # If multi-choice, ensure all correct answers are valid options keys
+            if self.question_type == 'multi_choice':
+                if not isinstance(correct, list):
+                    raise ValidationError("For multi-choice, 'correct' must be a list (e.g., ['A', 'B']).")
+                for ans in correct:
+                    if ans not in self.options:
+                        raise ValidationError(f"Correct answer '{ans}' is not listed in the options keys.")
+
+            # If single-choice
+            elif self.question_type == 'single_choice':
+                if correct not in self.options:
+                    raise ValidationError(f"Correct answer '{correct}' is not listed in the options keys.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()  # Force validation on save
+        super().save(*args, **kwargs)
+
+
+class ExamSubmission(models.Model):
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    exam = models.ForeignKey(FinalExam, on_delete=models.CASCADE)
+
+    score = models.FloatField(default=0.0)
+    passed = models.BooleanField(default=False)
+
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    # Store their answers to prevent cheating/disputes
+    answers = models.JSONField(default=dict)
+    is_fully_graded = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.student} - {self.exam} ({self.score}%)"
+
+
+class SupportTicket(models.Model):
+    PRIORITY_CHOICES = (
+        ('normal', 'Normal'),
+        ('high', 'High (Premium)'),
+    )
+
+    STATUS_CHOICES = (
+        ('open', 'Open'),
+        ('in_progress', 'In Progress'),
+        ('resolved', 'Resolved'),
+    )
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    subject = models.CharField(max_length=200)
+    message = models.TextField()
+
+    # This is the magic field
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='normal')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"[{self.priority.upper()}] {self.subject}"
+
+    def save(self, *args, **kwargs):
+        from payments.models import Enrollment
+        if not self.pk:  # Only on create
+            # Check if user has ANY premium enrollment
+            # (Or checks specifically for the course related to this ticket)
+            is_premium = Enrollment.objects.filter(
+                user=self.user,
+                package__package_type='premium',
+                status='active'
+            ).exists()
+
+            if is_premium:
+                self.priority = 'high'
+
+        super().save(*args, **kwargs)

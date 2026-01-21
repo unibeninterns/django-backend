@@ -11,6 +11,7 @@ class ContentState(Enum):
     IN_PROGRESS = "in_progress"  # Started but not completed
     COMPLETED = "completed"  # Successfully finished
     FAILED = "failed"  # Failed assessment, needs retry
+    PENDING = "pending"
 
     @classmethod
     def accessible_states(cls):
@@ -28,4 +29,4 @@ class ContentState(Enum):
     @classmethod
     def completable_states(cls):
         """States from which content can be completed."""
-        return [cls.IN_PROGRESS]
+        return [cls.IN_PROGRESS, cls.PENDING]
