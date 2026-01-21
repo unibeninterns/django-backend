@@ -43,6 +43,8 @@ class ContentProgress(models.Model):
         verbose_name = "ContentProgress"
         verbose_name_plural = "ContentProgresses"
 
+    def __str__(self):
+        return f"ID: {self.id} Content Progress (for ContentITem {self.content_item.id} | Content - {self.content_item.title} | state: {self.state})"
 
     def get_state_enum(self):
         return ContentState(self.state)
@@ -161,7 +163,7 @@ class LessonProgress(models.Model):
         """Check if state transition is valid."""
         valid_transitions = {
             ContentState.LOCKED: [ContentState.AVAILABLE],
-            ContentState.AVAILABLE: [ContentState.IN_PROGRESS],
+            ContentState.AVAILABLE: [ContentState.IN_PROGRESS, ContentState.COMPLETED],
             ContentState.IN_PROGRESS: [ContentState.COMPLETED, ContentState.FAILED],
             ContentState.FAILED: [ContentState.IN_PROGRESS],
             ContentState.COMPLETED: []  # Terminal state
@@ -170,8 +172,8 @@ class LessonProgress(models.Model):
 
     def check_and_update_status(self):
         """Checks if all child content is done AND the quiz is passed."""
-        # 1. Content Items check - Using the corrected attribute name
-        total_items = self.lesson.content_items.count()  # Changed from contentitem_set
+        # 1. Content Items check
+        total_items = self.lesson.content_items.count()
 
         completed_items = ContentProgress.objects.filter(
             student=self.student,
@@ -197,6 +199,9 @@ class LessonProgress(models.Model):
                 return True
 
         return False
+
+    def __str__(self):
+        return f"{self.id} - for lesson {self.lesson.id} ({self.state})"
 
 class ModuleCompletion(models.Model):
     """Module completion tracking with state management."""

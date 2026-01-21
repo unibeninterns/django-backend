@@ -2,7 +2,11 @@ import time
 import csv
 from io import BytesIO
 from django.contrib import admin, messages
-from .services import initiate_flutterwave_transfer
+from rest_framework.generics import get_object_or_404
+
+from core.common.utils.progress_aggregates import get_course_completion_percentage
+from core.common.utils.progress_states import ContentState
+from .services import initiate_flutterwave_transfer, initiate_addon_payment
 from openpyxl import Workbook
 from django.http import HttpResponse
 from rest_framework import viewsets, status
@@ -23,9 +27,9 @@ from django.db import transaction
 from django.contrib.auth import get_user_model
 from .permissions import IsStudent, IsOwnerOrAdmin
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
-from django.db.models import Sum, Q, Count, F, Avg
+from django.db.models import Sum, Q, Count, F, Avg, OuterRef, Subquery, IntegerField
 from rest_framework.request import Request
-from django.db.models.functions import TruncMonth, TruncWeek
+from django.db.models.functions import TruncMonth, TruncWeek, Coalesce
 from module.models import LiveSessionAttendance, Course, Certificate, CertificatePayment, CertificateRequest
 from progresse.models import ModuleCompletion
 from module.serializers import (
@@ -481,10 +485,67 @@ class PackageViewSet(viewsets.ReadOnlyModelViewSet):
 
         return queryset
 
+
 class AddOnViewSet(viewsets.ReadOnlyModelViewSet):
+    # Fix: Show Active features, not Inactive ones
     queryset = AddOn.objects.filter(is_active=True)
     serializer_class = AddOnSerializer
-    permission_classes = [AllowAny]
+
+    def get_permissions(self):
+        """
+        Allow anyone to view the list, but only logged-in users to buy.
+        """
+        if self.action == 'purchase':
+            return [IsAuthenticated, IsStudent]
+        return [AllowAny]
+
+    @action(detail=True, methods=['post'])
+    def purchase(self, request, pk=None):
+        """
+        Endpoint: POST /api/addons/{id}/purchase/
+        Body: {"course_id": 12}
+        """
+        addon = self.get_object()
+        user = request.user
+
+        # 1. Get the specific course they want this Add-on for
+        course_id = request.data.get('course_id')
+        if not course_id:
+            return Response(
+                {"error": "course_id is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        course = get_object_or_404(Course, pk=course_id)
+
+        # 2. Prevent Double Buying (Optional but recommended)
+        # e.g., If they are already Premium, don't let them buy Premium again
+        if 'premium' in addon.feature.name.lower():
+            enrollment = user.enrollments.filter(course=course).first()
+            if enrollment and enrollment.package.package_type == 'premium':
+                return Response(
+                    {"error": "You are already a Premium student for this course."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # 3. Initiate Flutterwave Payment
+        try:
+            # call the service function we wrote earlier
+            success, data = initiate_addon_payment(user, addon, course)
+
+            if success:
+                return Response({
+                    "message": "Payment initiated",
+                    "payment_link": data['link'],  # URL from Flutterwave
+                    "tx_ref": data['tx_ref']
+                })
+            else:
+                return Response(
+                    {"error": "Could not initiate payment", "details": data},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
 
 class AdminPaymentStatsViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
@@ -812,12 +873,16 @@ class AdminAnalyticsViewSet(viewsets.ViewSet):
                 ),
                 started_modules=Count(
                     'module',
-                    filter=Q(state__in=['in_progress', 'completed']),
+                    filter=Q(state__in=[
+                        ContentState.IN_PROGRESS.value,
+                        ContentState.COMPLETED.value
+                    ]),
                     distinct=True
                 ),
                 avg_progress=Avg('completion_percentage'),
             )
         )
+
 
         # Optional filters
         if course_id:
@@ -945,19 +1010,56 @@ class AdminAnalyticsViewSet(viewsets.ViewSet):
 
         return export_csv('revenue_by_course', headers, rows)
 
-    # come back to this
-    @action(detail=False, methods=['get'], url_path='students/progress/export')
+    @action(detail=False, methods=['get'], url_path='students-progress-export')
     def export_student_progress(self, request: Request):
         export_format = request.query_params.get('format', 'csv')
+        user = request.user
 
-        qs = Enrollment.objects.select_related('user', 'course')
+        # 1. Define a Subquery to count COMPLETED modules for each student/course pair
+        #    This asks: "Count ModuleCompletion rows where student=current_user
+        #    AND course=current_course AND state='completed'"
+        completed_modules_sq = ModuleCompletion.objects.filter(
+            student=OuterRef('user'),
+            module__course=OuterRef('package__course'),
+            state=ContentState.COMPLETED.value
+        ).values('student').annotate(
+            cnt=Count('id')
+        ).values('cnt')
 
-        rows = qs.values_list(
-            'user__username',
-            'course__title',
-            'progress',
-            'status'
+        # 2. Fetch Enrollments with all necessary data annotated in one go
+        #    - select_related: Grabs User and Course data
+        #    - total_modules: Counts how many modules exist in the course
+        #    - completed_count: Runs the subquery above
+        qs = Enrollment.objects.select_related(
+            'user',
+            'package__course'
+        ).annotate(
+            total_modules=Count('package__course__modules', distinct=True),
+            completed_count=Coalesce(Subquery(completed_modules_sq, output_field=IntegerField()), 0)
         )
+
+        rows = []
+
+        # 3. Iterate and Calculate Percentage in Python
+        for enrollment in qs:
+            # Safety check: avoid dividing by zero if a course has 0 modules
+            course = enrollment.package.course if (enrollment.package and enrollment.package.course) else None
+
+            if course:
+                # 2. Pass it to your helper function
+                percentage = get_course_completion_percentage(enrollment.user, course)
+            else:
+                percentage = 0.0
+
+            # Handle N/A cases for course title
+            course_title = enrollment.package.course.title if enrollment.package and enrollment.package.course else "N/A"
+
+            rows.append([
+                enrollment.user.username,
+                course_title,
+                percentage,
+                enrollment.status
+            ])
 
         headers = ['Student', 'Course', 'Progress (%)', 'Status']
 

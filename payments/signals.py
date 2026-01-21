@@ -48,6 +48,7 @@ def initialize_course_progress(sender, instance, created, **kwargs):
             # Unlock ONLY the first module
             if module == first_module:
                 mc.transition_to(ContentState.AVAILABLE)
+                mc.transition_to(ContentState.IN_PROGRESS)
 
         # --- 3. Initialize Lessons (Unlock first lesson of first module) ---
         lessons = Lesson.objects.filter(module__in=modules).order_by('order', 'id')

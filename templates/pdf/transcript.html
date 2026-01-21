@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+        body {
+            font-family: 'Times New Roman', serif;
+            color: #333;
+            line-height: 1.5;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            margin: 0;
+            text-transform: uppercase;
+            font-size: 24pt;
+            letter-spacing: 2px;
+        }
+        .header h2 {
+            margin: 5px 0 0;
+            font-size: 14pt;
+            font-weight: normal;
+        }
+        .student-info {
+            width: 100%;
+            margin-bottom: 30px;
+        }
+        .student-info td {
+            padding: 5px;
+            vertical-align: top;
+        }
+        .label {
+            font-weight: bold;
+            width: 150px;
+        }
+        .grades-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+        }
+        .grades-table th, .grades-table td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+        }
+        .grades-table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+        }
+        .capstone-section {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border: 1px solid #ddd;
+            margin-bottom: 30px;
+        }
+        .footer {
+            margin-top: 50px;
+            text-align: center;
+            font-size: 10pt;
+            color: #666;
+        }
+        .signature-line {
+            width: 200px;
+            border-top: 1px solid #000;
+            margin: 50px auto 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Official Transcript</h1>
+        <h2>DRID E-Learning Platform</h2>
+    </div>
+
+    <table class="student-info">
+        <tr>
+            <td class="label">Student Name:</td>
+            <td>{{ student.get_full_name|default:student.username }}</td>
+        </tr>
+        <tr>
+            <td class="label">Student ID:</td>
+            <td>{{ student.id }}</td> </tr>
+        <tr>
+            <td class="label">Course:</td>
+            <td>{{ course.title }}</td>
+        </tr>
+        <tr>
+            <td class="label">Date Issued:</td>
+            <td>{% now "F j, Y" %}</td>
+        </tr>
+        <tr>
+            <td class="label">Status:</td>
+            <td>{{ enrollment.status|title }}</td>
+        </tr>
+    </table>
+
+    <h3>Module Performance</h3>
+    <table class="grades-table">
+        <thead>
+            <tr>
+                <th>Module Title</th>
+                <th>Completion Date</th>
+                <th>Quiz Score</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for module in modules_data %}
+            <tr>
+                <td>{{ module.title }}</td>
+                <td>{{ module.completed_at|date:"M d, Y"|default:"-" }}</td>
+                <td>{{ module.score }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="summary-section" style="margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px;">
+        <h3>Final Assessment Summary</h3>
+
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="width: 50%; vertical-align: top; padding-right: 20px;">
+                    <div style="background: #f9f9f9; padding: 15px; border-radius: 5px;">
+                        <h4 style="margin-top: 0;">Capstone Project</h4>
+                        <p><strong>Title:</strong> {{ capstone.title|default:"Pending" }}</p>
+                        <p><strong>Grade:</strong> {{ capstone.grade|default:"N/A" }}</p>
+                        <p><strong>Verdict:</strong> {{ capstone.grade2|default:"-" }}</p>
+                    </div>
+                </td>
+
+                <td style="width: 50%; vertical-align: top; padding-left: 20px;">
+                    <div style="background: #f9f9f9; padding: 15px; border-radius: 5px;">
+                        <h4 style="margin-top: 0;">Final Exam</h4>
+                        {% if final_exam %}
+                            <p><strong>Score:</strong> {{ final_exam.score|floatformat:1 }}%</p>
+                            <p><strong>Status:</strong>
+                                {% if final_exam.passed %}
+                                    <span style="color: green; font-weight: bold;">PASSED</span>
+                                {% else %}
+                                    <span style="color: red; font-weight: bold;">FAILED</span>
+                                {% endif %}
+                            </p>
+                            <p><strong>Date:</strong> {{ final_exam.completed_at|date:"M d, Y" }}</p>
+                        {% else %}
+                            <p style="color: #999;"><em>Not yet taken</em></p>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="footer">
+        <div class="signature-line"></div>
+        <p>Registrar / Academic Director</p>
+        <p>This document is electronically generated and is valid without a seal.</p>
+        <p>Verify at: https://drid.uniben.edu/verify_transcript/{{ enrollment.id }}</p>
+    </div>
+
+</body>
+</html>

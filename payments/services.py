@@ -55,3 +55,24 @@ def initiate_flutterwave_transfer(payout_obj):
         payout_obj.notes += f"\nSystem Error: {str(e)}"
         payout_obj.save()
         return False, str(e)
+
+
+def initiate_addon_payment(user, addon, course):
+    # addon is the specific AddOn instance they clicked
+    tx_ref = f"ADDON-{addon.id}-{course.id}-{user.id}-{uuid.uuid4().hex[:8]}"
+
+    payload = {
+        "tx_ref": tx_ref,
+        "amount": str(addon.price),
+        "currency": "NGN",
+        "redirect_url": "https://your-frontend.com/payment-success",
+        "customer": {
+            "email": user.email,
+            "name": user.get_full_name()
+        },
+        "meta": {
+            "addon_id": addon.id,
+            "course_id": course.id,
+            "feature_name": addon.feature.name  # Helps debug
+        }
+    }

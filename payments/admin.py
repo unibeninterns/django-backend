@@ -7,11 +7,10 @@ admin.site.register(Payout)
 
 @admin.register(Feature)
 class FeatureAdmin(admin.ModelAdmin):
-    list_display = ['name', 'is_active', 'created_at']
-    list_filter = ['is_active', 'created_at']
+    list_display = ['name', 'description']
+    list_filter = ['name']
     search_fields = ['name', 'description']
-    list_editable = ['is_active']
-    readonly_fields = ['created_at']
+    list_editable = ['description']
 
 
 class FeatureInline(admin.TabularInline):
@@ -23,7 +22,7 @@ class FeatureInline(admin.TabularInline):
 
 @admin.register(Package)
 class PackageAdmin(admin.ModelAdmin):
-    list_display = ['name', 'package_type', 'course', 'price', 'duration_weeks', 'feature_count', 'is_active', 'created_at']
+    list_display = ['id', 'name', 'package_type', 'course', 'price', 'duration_weeks', 'feature_count', 'is_active', 'created_at']
     list_filter = ['package_type', 'is_active', 'created_at']
     search_fields = ['name', 'description']
     list_editable = ['is_active', 'price']
@@ -173,9 +172,9 @@ class EnrollmentAdmin(admin.ModelAdmin):
 
 @admin.register(AddOn)
 class AddOnAdmin(admin.ModelAdmin):
-    list_display = ['name', 'price', 'is_active', 'created_at']
+    list_display = ['feature', 'price', 'is_active', 'created_at']
     list_filter = ['is_active', 'created_at']
-    search_fields = ['name', 'description']
+    search_fields = ['feature']
     list_editable = ['is_active', 'price']
     readonly_fields = ['created_at']
 

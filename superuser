@@ -14,7 +14,7 @@ tink1234
 }
 
 {
-    "email": "jane.doe@example.com",
+    "email": "henruenehizy@gmail.com",
     "password": "SecurePass2026!"
 }
 
@@ -23,7 +23,10 @@ tink1234
     "password": "TutorPass2026!"
 }
 
-
+has_essays = manual_questions.exists()
 
 C:\Windows\system32>ngrok config add-authtoken 38GutuORH6RJXIoxrgdT1Pu7XbP_2VmkNUBTQAUSj8NR5oH5o                        \
 Authtoken saved to configuration file: C:\Users\user\AppData\Local/ngrok/ngrok.yml
+
+
+Generate detailed documentation for the 'Drid Uniben' collection - postman ai prompt

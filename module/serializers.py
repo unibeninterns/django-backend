@@ -5,6 +5,7 @@ from core.common.utils.progress import get_content_state
 from progresse.models import QuizProgress
 from core.common.utils.progress_states import ContentState
 from users.models import CustomUser, TutorCourse
+from payments.models import Enrollment
 
 User = get_user_model()
 
@@ -53,15 +54,43 @@ class ModuleSerializer(serializers.ModelSerializer):
         return round(progress_qs.aggregate(avg_score=models.Avg('latest_score'))['avg_score'] or 0, 2)
 
     def get_completion_percentage(self, obj):
-        total_students = CustomUser.objects.filter(role='student').count()
-        if total_students == 0:
+        # 1. Count only students enrolled in THIS course
+        # (Assuming you have an Enrollment model linking User <-> Course)
+        total_enrolled = Enrollment.objects.filter(
+            package__course=obj.course,
+            status='active'
+        ).count()
+
+        if total_enrolled == 0:
             return 0
-        completed = QuizProgress.objects.filter(quiz__module=obj, state=ContentState.COMPLETED.value).values(
-            'student').distinct().count()
-        return round((completed / total_students) * 100, 2)
+
+        # 2. Count how many of THOSE students completed the module
+        completed_count = QuizProgress.objects.filter(
+            quiz__module=obj,
+            state=ContentState.COMPLETED.value
+        ).values('student').distinct().count()
+
+        return round((completed_count / total_enrolled) * 100, 2)
 
     def get_lessons(self, obj):
-        return LessonSerializer(obj.lessons.all(), many=True).data
+        return LessonSerializer(obj.lessons.all(), many=True, context=self.context).data
+
+class AdminModuleListSerializer(serializers.ModelSerializer):
+    course_title = serializers.CharField(source='course.title', read_only=True)
+    lesson_count = serializers.IntegerField(source='lessons.count', read_only=True)
+
+    class Meta:
+        model = Module
+        fields = [
+            'id',
+            'course',
+            'course_title',
+            'order',
+            'title',
+            'week_number',
+            'description',
+            'lesson_count'
+        ]
 
 class CourseSerializer(serializers.ModelSerializer):
     total_quizzes = serializers.SerializerMethodField()
@@ -190,10 +219,82 @@ class QuizSerializer(serializers.ModelSerializer):
     def get_question_count(self, obj):
         return obj.questions.count()
 
+class QuizSummarySerializer(serializers.ModelSerializer):
+    """
+    Used when nesting inside Lessons/Modules.
+    Hides questions and answers to prevent cheating and reduce payload size.
+    """
+    is_passed = serializers.SerializerMethodField()
+    attempts = serializers.SerializerMethodField()
+
+    question_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Quiz
+        fields = [
+            'id',
+            'title',
+            'passing_score',
+            'question_count',
+            'is_passed',
+            'attempts',
+            'is_required_for_module'
+        ]
+
+    def get_attempts(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            progress = QuizProgress.objects.filter(student=request.user, quiz=obj).first()
+            return progress.attempts if progress else 0
+        return 0
+
+    def get_is_passed(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            progress = QuizProgress.objects.filter(student=request.user, quiz=obj).first()
+            return progress.is_passed if progress else False
+        return False
+
+    def get_question_count(self, obj):
+        return obj.questions.count()
+
+class LessonSummarySerializer(serializers.ModelSerializer):
+
+    quiz = QuizSummarySerializer(read_only=True)
+
+    class Meta:
+        model = Lesson
+        fields = ['id', 'title', 'order', 'has_video', 'video_duration_minutes', 'quiz']
+
+class ModuleStudentSerializer(serializers.ModelSerializer):
+    """
+    Fast, secure serializer for Students.
+    Removes Admin stats and uses safe Lesson summary.
+    """
+    previous_module_id = serializers.IntegerField(read_only=True, allow_null=True)
+    next_module_id = serializers.IntegerField(read_only=True, allow_null=True)
+    lessons = LessonSummarySerializer(many=True, read_only=True) # <--- Safe nesting
+
+    class Meta:
+        model = Module
+        fields = [
+            'id', 'course', 'order', 'title', 'week_number', 'description',
+            'requires_all_lessons', 'requires_all_quizzes',
+            'previous_module_id', 'next_module_id', 'lessons'
+        ]
+
+    def to_representation(self, instance):
+        # Keep your navigation logic
+        data = super().to_representation(instance)
+        data['previous_module_id'] = self.context.get('previous_module_id')
+        data['next_module_id'] = self.context.get('next_module_id')
+        return data
+
 class LessonSerializer(serializers.ModelSerializer):
     previous_lesson_id = serializers.IntegerField(read_only=True, allow_null=True)
     next_lesson_id = serializers.IntegerField(read_only=True, allow_null=True)
-    notes = LessonNoteSerializer(read_only=True, many=True)  # List of all notes for the user
+
+    notes = serializers.SerializerMethodField()
     quiz = QuizSerializer(read_only=True)
 
     class Meta:
@@ -204,9 +305,17 @@ class LessonSerializer(serializers.ModelSerializer):
         ]
 
     def get_notes(self, obj):
-        user = self.context['request'].user
-        if user.is_authenticated and isinstance(user, CustomUser) and user.role == 'student':
-            return obj.notes.filter(student=user)
+        # 3. THIS LINE is why you need to pass context from the parent!
+        # If the parent didn't pass context, this crashes with a KeyError or AttributeError.
+        request = self.context.get('request')
+
+        if request and request.user.is_authenticated and getattr(request.user, 'role', None) == 'student':
+            # Filter: Only show notes created by THIS user
+            my_notes = obj.notes.filter(student=request.user)
+
+            # Manually serialize the filtered list
+            return LessonNoteSerializer(my_notes, many=True).data
+
         return []
 
 class ContentItemSerializer(serializers.ModelSerializer):
@@ -222,7 +331,6 @@ class ContentItemSerializer(serializers.ModelSerializer):
             # Call your central logic here
             return get_content_state(user, 'content_item', obj.id).value
         return 'locked'
-
 
 class QuizSubmissionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -254,6 +362,87 @@ class CapstoneProjectSerializer(serializers.ModelSerializer):
         if request:
             return get_content_state(request.user, 'project', obj.id).value
         return None
+
+
+class ExamQuestionAdminSerializer(serializers.ModelSerializer):
+    """
+    Standard serializer for Admins to CREATE/UPDATE questions.
+    This accepts the full 'options' JSON including the 'correct' key.
+    """
+    class Meta:
+        model = ExamQuestion
+        fields = ['id', 'exam', 'text', 'question_type', 'points', 'order', 'options']
+
+class ExamQuestionSerializer(serializers.ModelSerializer):
+    """
+    Serializer for individual questions.
+    Includes logic to HIDE the correct answer from the student.
+    """
+    options = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExamQuestion
+        fields = ['id', 'text', 'question_type', 'points', 'order', 'options']
+
+    def get_options(self, obj):
+        """
+        Sanitize the options JSON to remove the 'correct' key
+        so students cannot see the answer in the API response.
+        """
+        # Create a copy so we don't modify the actual database object
+        data = obj.options.copy() if obj.options else {}
+
+        # If you store answers like: {"A": "Val", "B": "Val", "correct": "A"}
+        # This removes "correct": "A"
+        if 'correct' in data:
+            del data['correct']
+
+        return data
+
+
+class FinalExamSerializer(serializers.ModelSerializer):
+    """
+    Main serializer for the Exam details.
+    Nests the questions so the frontend gets everything in one call.
+    """
+    questions = ExamQuestionSerializer(many=True, read_only=True)
+
+    # Optional: Add a field to show if the user has already submitted
+    is_completed = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FinalExam
+        fields = [
+            'id',
+            'title',
+            'course',
+            'description',
+            'duration_minutes',
+            'passing_score',
+            'questions',
+            'is_completed'
+        ]
+
+    def get_is_completed(self, obj):
+        user = self.context.get('request').user
+        if user.is_authenticated:
+            return ExamSubmission.objects.filter(
+                student=user,
+                exam=obj,
+                completed_at__isnull=False
+            ).exists()
+        return False
+
+
+class ExamSubmissionSerializer(serializers.ModelSerializer):
+    """
+    Used when the student submits the exam or views their result.
+    """
+
+    class Meta:
+        model = ExamSubmission
+        fields = ['id', 'student', 'exam', 'score', 'passed', 'started_at', 'completed_at']
+        read_only_fields = ['score', 'passed', 'completed_at']
 
 class LiveSessionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -418,3 +607,20 @@ class CourseOverviewSerializer(serializers.ModelSerializer):
             }
             for tc in tutors
         ]
+
+
+class SupportTicketSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model = SupportTicket
+        fields = [
+            'id',
+            'user',
+            'subject',
+            'message',
+            'priority',
+            'status',
+            'created_at'
+        ]
+        read_only_fields = ['user', 'priority', 'status', 'created_at']

@@ -2,7 +2,9 @@ from rest_framework import viewsets, status, filters
 from rest_framework.generics import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, NotAuthenticated
+
+from payments.models import Enrollment
 from .models import *
 from django.urls import reverse
 import hashlib
@@ -63,7 +65,7 @@ class CourseViewSet(viewsets.ModelViewSet):
 
         # 3. Student Logic: If role is student, only allow list and retrieve
         if getattr(user, 'role', None) == 'student':
-            if self.action in ['list', 'retrieve', 'course_progress', 'dashboard']:
+            if self.action in ['list', 'retrieve', 'course_progress', 'dashboard', 'active_courses', 'get_weeks_progress']:
                 return [IsStudent(), CanAccessContent()]
 
             # If a student tries to 'create' or 'destroy', block them
@@ -90,6 +92,7 @@ class CourseViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='weeks-progress', url_name='get-weeks-progress')
     def get_weeks_progress(self, request, pk=None):
         user = self.request.user
+        print(self.action)
         course = self.get_object()
         if user.is_authenticated and isinstance(user, CustomUser) and user.role == 'student':
             modules = Module.objects.filter(course=course)
@@ -99,6 +102,11 @@ class CourseViewSet(viewsets.ModelViewSet):
                 weeks_done = len(set(module.week_number for module in completed_modules))
                 return Response({'weeks_completed': weeks_done, 'total_weeks': 12})
             return Response({'detail': 'No module started'}, status=200)
+        return Response({
+            'weeks_completed': 0,
+            'total_weeks': 12,
+            'detail': 'Admin user - progress not tracked'
+        })
 
     @action(detail=False, methods=['get'], url_path='active-courses', url_name='active-courses')
     def active_courses(self, request):
@@ -154,7 +162,22 @@ class CourseViewSet(viewsets.ModelViewSet):
 
 class ModuleViewSet(viewsets.ModelViewSet):
     queryset = Module.objects.all()
-    serializer_class = ModuleSerializer
+
+    def get_serializer_class(self):
+        user = self.request.user
+
+        if not user or not user.is_authenticated:
+            raise NotAuthenticated("Please log in to view this content.")
+
+        # 2. Handle Students
+        if getattr(user, 'role', None) == 'student':
+            return ModuleStudentSerializer
+
+        # 3. Handle Admins
+        if getattr(user, 'role', None) == 'admin':
+            return ModuleSerializer
+
+        raise PermissionDenied("Your account role does not have access to this resource.")
 
     def get_permissions(self):
         user = self.request.user
@@ -171,7 +194,7 @@ class ModuleViewSet(viewsets.ModelViewSet):
 
         # 3. Student Logic: If role is student, only allow list and retrieve
         if getattr(user, 'role', None) == 'student':
-            if self.action in ['list', 'retrieve', 'course_progress', 'dashboard']:
+            if self.action in ['list', 'retrieve', 'course_progress', 'dashboard', 'start_module']:
                 return [IsStudent(), CanAccessContent()]
 
             # If a student tries to 'create' or 'destroy', block them
@@ -232,6 +255,34 @@ class ModuleViewSet(viewsets.ModelViewSet):
             print(f"Updated Context: {context}")
         return context
 
+    @action(detail=True, methods=['post'], url_path='start')
+    def start_module(self, request, pk=None):
+        user = request.user
+        module = self.get_object()
+
+        # 1. Get or Create the completion record
+        progress, _ = ModuleCompletion.objects.get_or_create(
+            student=user,
+            module=module
+        )
+
+        # 2. Check if already finished
+        if progress.state == ContentState.COMPLETED.value:
+            return Response({"detail": "Module already completed."}, status=status.HTTP_200_OK)
+
+        # 3. Transition to IN_PROGRESS
+        try:
+            if progress.state != ContentState.IN_PROGRESS.value:
+                progress.transition_to(ContentState.IN_PROGRESS)
+
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            "detail": "Module started",
+            "status": progress.state
+        }, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=['get'], url_path='progress')
     def get_module_progress(self):
         user = self.request.user
@@ -263,13 +314,27 @@ class ModuleViewSet(viewsets.ModelViewSet):
     def list(self, request, *args, **kwargs):
         user = request.user
         if user.is_authenticated and isinstance(user, CustomUser) and user.role == 'student':
+            # 1. Get the accessible modules (This runs your smart get_queryset logic once)
+            queryset = self.get_queryset()
+
+            # 2. Serialize them
+            serializer_data = self.get_serializer(queryset, many=True).data
+            completed_count = Module.objects.filter(
+                id__in=queryset.values_list('id', flat=True)
+            ).filter(
+            ).count()
+
             completed_modules = [
-                module for module in Module.objects.all()
-                if get_content_state(user, 'module', module.id) == ContentState.COMPLETED
+                m for m in queryset
+                if get_content_state(user, 'module', m.id) == ContentState.COMPLETED
             ]
-            response_data = {'modules_completed': len(completed_modules),
-                             'results': self.get_serializer(self.get_queryset(), many=True).data}
+
+            response_data = {
+                'modules_completed': len(completed_modules),
+                'results': serializer_data
+            }
             return Response(response_data)
+
         return super().list(request, *args, **kwargs)
 
 class LessonViewSet(viewsets.ModelViewSet):
@@ -290,7 +355,7 @@ class LessonViewSet(viewsets.ModelViewSet):
 
         # 3. Student Logic: If role is student, only allow list and retrieve
         if getattr(user, 'role', None) == 'student':
-            if self.action in ['my_lessons', 'add_note', 'delete_note', 'update_note']:
+            if self.action in ['my_lessons', 'add_note', 'delete_note', 'update_note', 'start_lesson' ]:
                 print(CanAccessContent())
                 return [IsStudent(), CanAccessContent()]
 
@@ -303,6 +368,7 @@ class LessonViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter lessons based on user access."""
         user = self.request.user
+        queryset = Lesson.objects.none()
         if user.is_authenticated and isinstance(user, CustomUser) and user.role == 'student':
             accessible_lessons = [
                 lesson for lesson in Lesson.objects.all()
@@ -316,8 +382,12 @@ class LessonViewSet(viewsets.ModelViewSet):
                     accessible_lessons.append(Lesson.objects.filter(id=requested_pk).first())
             return Lesson.objects.filter(id__in=[lesson.id for lesson in accessible_lessons if lesson])
         elif user.is_authenticated and user.role == 'admin':
-            return Lesson.objects.all()
-        return Lesson.objects.none()
+            queryset = Lesson.objects.all()
+
+        module_id = self.request.query_params.get('module')
+        if module_id:
+            queryset = queryset.filter(module_id=module_id)
+        return queryset
 
     def get_serializer_context(self):
         """Add previous and next lesson IDs to serializer context."""
@@ -331,6 +401,36 @@ class LessonViewSet(viewsets.ModelViewSet):
                 'next_lesson_id': next_lesson.id if next_lesson else None,
             })
         return context
+
+    @action(detail=True, methods=['post'], permission_classes=[IsStudent, CanAccessContent], url_path='start')
+    def start_lesson(self, request, pk=None):
+        user = request.user
+        lesson = self.get_object()
+
+        # 1. Get or Create the progress record
+        progress, _ = LessonProgress.objects.get_or_create(
+            student=user,
+            lesson=lesson
+        )
+
+        # 2. Check if already finished to avoid "downgrading" status
+        if progress.state == ContentState.COMPLETED.value:
+            return Response({"detail": "Lesson already completed."}, status=status.HTTP_200_OK)
+
+        # 3. Transition to IN_PROGRESS
+        try:
+            # Only transition if we are not already there
+            if progress.state != ContentState.IN_PROGRESS.value:
+                progress.transition_to(ContentState.IN_PROGRESS)
+
+        except ValueError as e:
+            # Catches issues like trying to start a LOCKED lesson
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            "detail": "Lesson started",
+            "status": progress.state
+        }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], permission_classes=[IsStudent, CanAccessContent], url_path='add-note')
     def add_note(self, request, pk=None):
@@ -443,6 +543,25 @@ class ContentItemViewSet(viewsets.ModelViewSet):
         """
         return super().get_serializer_context()
 
+    @action(detail=True, methods=['post'], url_path='start')
+    def start_content(self, request, pk=None):
+        user = request.user
+        content_item = self.get_object()
+
+        # 1. Get or Create the progress record for the item
+        progress, _ = ContentProgress.objects.get_or_create(
+            student=user,
+            content_item=content_item
+        )
+
+        # 2. Transition to IN Progress
+        try:
+            progress.transition_to(ContentState.IN_PROGRESS)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"detail": "Content started", "status": progress.state }, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['post'], url_path='complete')
     def complete_content(self, request, pk=None):
         user = request.user
@@ -456,7 +575,13 @@ class ContentItemViewSet(viewsets.ModelViewSet):
 
         # 2. Transition to COMPLETED
         try:
+            # Only move to IN_PROGRESS if we are currently AVAILABLE (e.g. skipped 'start')
+            if progress.state == ContentState.AVAILABLE.value:
+                progress.transition_to(ContentState.IN_PROGRESS)
+
+            # Now it is safe to move to COMPLETED
             progress.transition_to(ContentState.COMPLETED)
+
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -466,17 +591,16 @@ class ContentItemViewSet(viewsets.ModelViewSet):
             lesson=content_item.lesson
         )
 
-        # Run the check we just added to the model
         lesson_was_completed = lesson_progress.check_and_update_status()
 
-        # 4. Optional: If lesson is done, check if Module is done
+        #If lesson is done, check if Module is done
         module_was_completed = False
         if lesson_was_completed:
             module_progress, _ = ModuleCompletion.objects.get_or_create(
                 student=user,
                 module=content_item.lesson.module
             )
-            # You can implement a similar check_and_update_status on ModuleCompletion!
+            #similar check_and_update_status on ModuleCompletion!
             module_was_completed = module_progress.check_and_update_status()
 
         return Response({
@@ -505,16 +629,36 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_authenticated and isinstance(user, CustomUser) and user.role == 'student':
+
+        # --- 1. ADMINS (See Everything) ---
+        # Admins MUST see 'draft' quizzes so they can edit/preview them.
+        if user.is_authenticated and isinstance(user, CustomUser) and user.role == 'admin':
+            return Quiz.objects.all()
+
+        # --- 2. STUDENTS (Strictly Published Only) ---
+        elif user.is_authenticated and isinstance(user, CustomUser) and user.role == 'student':
+
+            # Step A: The "Base Filter"
+            # We start by getting ONLY published quizzes.
+            # Drafts effectively do not exist for the student.
+            queryset = Quiz.objects.filter(status='published')
+
+            # Step B: Action-Specific Logic
             if self.action in {'retrieve', 'start_quiz', 'complete_quiz'}:
-                return Quiz.objects.all()  # Allow access to all quizzes by PK for these actions
+                # Return ALL published quizzes so permissions can handle the "Locked" error
+                # instead of a confusing "404 Not Found".
+                return queryset
+
+                # Step C: List View (Default)
+            # Only show published quizzes that the user has unlocked/started.
             accessible_states_values = [state.value for state in ContentState.accessible_states()]
-            return Quiz.objects.filter(
+
+            return queryset.filter(
                 quizprogress__student=user,
                 quizprogress__state__in=accessible_states_values
             ).distinct()
-        elif user.is_authenticated and isinstance(user, CustomUser) and user.role == 'admin':
-            return Quiz.objects.all()
+
+        # --- 3. FALLBACK ---
         return Quiz.objects.none()
 
     def get_serializer_context(self):
@@ -661,20 +805,31 @@ class QuizViewSet(viewsets.ModelViewSet):
                 continue
 
         # 4. Calculate Final Score
+        has_essays = manual_questions.exists()
+
         if total_auto_count > 0:
+            # Scenario A: We have auto-graded questions (Mixed or Standard Quiz)
             score = (correct_auto_count / total_auto_count) * 100
+
+            # If they passed the auto-portion, they are good.
+            if score >= quiz.passing_score:
+                new_state = ContentState.COMPLETED
+            else:
+                new_state = ContentState.PENDING
+
         else:
-            # If the quiz is 100% essays, it stays at 0 until graded
-            score = 0
+            # Scenario B: 100% Essays (total_auto_count == 0)
+            # logic: We cannot calculate a real score yet.
+            # CRITICAL FIX: Do NOT mark as FAILED. Mark as COMPLETED (or PENDING) to let them proceed.
+            score = 0.0
+            new_state = ContentState.PENDING
+
+            # Save the submission
         submission.score = score
         submission.save()
 
-        has_essays = manual_questions.exists()
-
-        # 5. Handle State Transition & Lesson Unlocking
-        new_state = ContentState.COMPLETED if score >= quiz.passing_score else ContentState.FAILED
-
-        # This calls your transition logic (timestamps, etc.)
+        # 5. Handle State Transition
+        # Notice: We removed the generic "if score > passing" line that was overwriting our logic.
         progress.transition_to(
             new_state,
             score=score,
@@ -700,14 +855,19 @@ class QuizViewSet(viewsets.ModelViewSet):
         # Check total questions for the UI
         total_actual_questions = quiz.questions.count()
 
-        response_data.update({
+        custom_data = {
             "score_achieved": score,
-            "passed": score >= quiz.passing_score,
             "auto_graded_correct": correct_auto_count,
             "auto_graded_total": total_auto_count,
             "total_questions_in_quiz": total_actual_questions,
             "requires_manual_grading": has_essays
-        })
+        }
+
+        if not has_essays:
+            custom_data["passed"] = score >= quiz.passing_score
+
+            # Merge into the final response
+        response_data.update(custom_data)
 
         return Response(response_data, status=200)
 
@@ -791,12 +951,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             'published_quizzes': Quiz.objects.filter(is_published=True).count()
         })
 
-    @action(
-        detail=False,
-        methods=['get'],
-        url_path='stats/drafts',
-        permission_classes=[IsAdminUser]
-    )
+    @action(detail=False, methods=['get'], url_path='stats/drafts', permission_classes=[IsAdminUser])
     def draft_quizzes(self, request):
         return Response({
             'draft_quizzes': Quiz.objects.filter(is_published=False).count()
@@ -1067,13 +1222,197 @@ class CapstoneProjectViewSet(viewsets.ModelViewSet):
             # D. Update the Tracker (ProjectProgress)
             # This is the crucial step that links everything together
             progress.submission = submission
-            progress.state = ContentState.SUBMITTED.value  # or IN_PROGRESS depending on your flow
+            progress.state = ContentState.COMPLETED.value
             progress.submitted_at = timezone.now()
             progress.save()
 
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class SupportTicketViewSet(viewsets.ModelViewSet):
+    """
+    Endpoints:
+    GET /api/support/ (List my tickets)
+    POST /api/support/ (Create new ticket)
+    GET /api/support/{id}/ (View ticket details)
+    """
+    serializer_class = SupportTicketSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Ensure users can only see their own tickets.
+        Admins/Staff can see all tickets.
+        """
+        user = self.request.user
+        if user.is_authenticated:
+            if user.role == 'admin':
+                return SupportTicket.objects.all().order_by('-created_at')
+            elif user.role == 'student':
+                return SupportTicket.objects.filter(user=user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        """
+        Automatically link the ticket to the currently logged-in user.
+        This triggers the model's .save() method, which calculates Priority.
+        """
+        serializer.save(user=self.request.user)
+
+class ExamQuestionViewSet(viewsets.ModelViewSet):
+    """
+    Admin View to Manage Questions.
+    """
+    queryset = ExamQuestion.objects.all()
+    serializer_class = ExamQuestionAdminSerializer
+    permission_classes = [IsAuthenticated, IsAdminUser] # Restrict this!
+
+    def get_queryset(self):
+        # Optional: Filter by exam if provided in query params
+        # /api/questions/?exam=1
+        exam_id = self.request.query_params.get('exam')
+        if exam_id:
+            return self.queryset.filter(exam_id=exam_id)
+        return self.queryset
+
+class FinalExamViewSet(viewsets.ModelViewSet):
+    """
+    Mixed ViewSet:
+    - Admins: Can Create, Update, Delete.
+    - Students: Can only Read, Start, and Submit.
+    """
+    queryset = FinalExam.objects.filter(is_active=True)
+    serializer_class = FinalExamSerializer
+
+    # 2. Dynamic Permissions: Protect the dangerous methods!
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        """
+        # Actions that modify the Exam structure (Create/Delete) require Admin
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            permission_classes = [IsAuthenticated, IsAdminUser]
+
+        # Actions for taking the exam (Read/Start/Submit) require Premium Student
+        else:
+            permission_classes = [IsAuthenticated, IsPremiumStudent]
+
+        return [permission() for permission in permission_classes]
+
+    @action(detail=True, methods=['post'])
+    def start_exam(self, request, pk=None):
+        """
+        Endpoint: POST /api/exams/{id}/start_exam/
+        Checks if the course is 'completed' before allowing start.
+        """
+        exam = self.get_object()
+
+        # --- 1. THE COMPLETION CHECK ---
+        # This connects to your Signal. If the Signal didn't mark it 'completed',
+        # they get blocked here.
+        enrollment = get_object_or_404(Enrollment, user=request.user, course=exam.course)
+
+        if enrollment.status != 'completed':
+            return Response(
+                {
+                    "error": "Course incomplete.",
+                    "detail": "You must complete all modules and lessons before taking the Final Exam."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # --- 2. START THE TIMER ---
+        submission, created = ExamSubmission.objects.get_or_create(
+            student=request.user,
+            exam=exam,
+            defaults={'started_at': timezone.now()}
+        )
+
+        # If they already finished it previously, don't let them restart
+        if not created and submission.completed_at:
+            return Response(
+                {"error": "You have already submitted this exam."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response({
+            "message": "Exam started",
+            "submission_id": submission.id,
+            "start_time": submission.started_at,
+            "duration_minutes": exam.duration_minutes
+        })
+
+    @action(detail=True, methods=['post'])
+    def submit_exam(self, request, pk=None):
+        """
+        Endpoint: POST /api/exams/{id}/submit_exam/
+        Body: { "answers": { "101": "A", "102": "C" } }  <-- Keys are Question IDs
+        """
+        exam = self.get_object()
+
+        # 1. Get the submission (verifies they actually started it)
+        submission = get_object_or_404(ExamSubmission, student=request.user, exam=exam)
+
+        if submission.completed_at:
+            return Response({"error": "Exam already submitted"}, status=400)
+
+        # 2. Grading Logic
+        raw_answers = request.data.get('answers', {})
+        total_score = 0
+        total_possible = 0
+
+        submission.is_fully_graded = True
+
+        # Loop through all questions in this exam
+        for question in exam.questions.all():
+            # SKIP Essay questions (they need manual grading later)
+            if question.question_type == 'essay':
+                submission.is_fully_graded = False  # You might want to add this field to ExamSubmission
+                continue
+
+            total_possible += question.points
+
+            # Get user answer (cast to string just in case, unless it's a list)
+            user_ans = raw_answers.get(str(question.id))
+            correct_ans = question.options.get('correct')
+
+            # --- LOGIC UPDATE HERE ---
+            is_correct = False
+
+            # 1. Handle Multi-Choice (Compare as Sets to ignore order)
+            if question.question_type == 'multi_choice':
+                if isinstance(user_ans, list) and isinstance(correct_ans, list):
+                    # set(['A', 'B']) == set(['B', 'A']) is True
+                    if set(user_ans) == set(correct_ans):
+                        is_correct = True
+
+            # 2. Handle Single Choice (Direct comparison)
+            else:
+                if user_ans == correct_ans:
+                    is_correct = True
+
+            if is_correct:
+                total_score += question.points
+
+        # 3. Calculate Percentage
+        final_percent = 0.0
+        if total_possible > 0:
+            final_percent = (total_score / total_possible) * 100
+
+        # 4. Save Results
+        submission.answers = raw_answers
+        submission.score = final_percent
+        submission.passed = final_percent >= exam.passing_score
+        submission.completed_at = timezone.now()
+        submission.save()
+
+        # 5. Return Result
+        return Response({
+            "message": "Exam submitted successfully",
+            "score": final_percent,
+            "passed": submission.passed,
+            "threshold": exam.passing_score
+        })
 
 class LiveSessionViewSet(viewsets.ModelViewSet):
     queryset = LiveSession.objects.all()
@@ -1176,8 +1515,9 @@ class CertificateRequestViewSet(viewsets.ModelViewSet):
         course = serializer.validated_data['course']
 
         # 1. Safety Check: Does an enrollment even exist?
-        from payments.models import Enrollment  # Adjust import path as needed
-        enrollment = Enrollment.objects.filter(  user=user, package__course=course).first()
+        from payments.models import Enrollment, Package  # Adjust import path as needed
+        enrollment = Enrollment.objects.filter(user=user, package__course=course).first()
+        package = enrollment.package
 
         if not enrollment:
             raise serializers.ValidationError(
@@ -1189,6 +1529,11 @@ class CertificateRequestViewSet(viewsets.ModelViewSet):
         if enrollment.status != 'completed':
             raise serializers.ValidationError(
                 "Your enrollment status is not 'completed'. Please finish all modules first."
+            )
+
+        if package.package_type != 'premium':
+            raise serializers.ValidationError(
+                "You do not currently have access to this action"
             )
 
         # 3. Check for existing requests (Handled by your model's UniqueConstraint,
@@ -1489,6 +1834,100 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
         from module.tasks import broadcast_announcement_task
         broadcast_announcement_task.delay(announcement.id)
 
+class DownloadTranscriptView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, course_id):
+        """
+        Endpoint: GET /api/courses/{course_id}/transcript/
+        """
+        user = request.user
+
+        # 1. Find the Enrollment
+        from payments.models import Enrollment
+        enrollment = get_object_or_404(
+            Enrollment.objects.select_related('package'),
+            user=user,
+            course_id=course_id
+        )
+
+        # 2. THE GATEKEEPER: Check for Premium
+        if enrollment.package.package_type != 'premium':
+            return Response(
+                {"error": "Transcripts are only available for Premium students. Please purchase the Premium Add-on."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 3. Check for Course Completion (Optional but standard)
+        if enrollment.status != 'completed':
+            return Response(
+                {"error": "You must complete the course before generating a transcript."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 4. Generate PDF (Pseudo-code for WeasyPrint/ReportLab)
+        from .utils import generate_transcript_pdf
+        try:
+            pdf_bytes = generate_transcript_pdf(user, enrollment.course)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to generate PDF: {str(e)}"},
+                status=500
+            )
+
+        # 5. Return as File Download
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        filename = f"Transcript_{user.username}_{course_id}.pdf"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        return response
+
+class VerifyCertificateView(APIView):
+    """
+    Public endpoint to verify a certificate.
+    Returns JSON status for the frontend to display.
+    Endpoint: GET /api/verify/{enrollment_id}/
+    """
+    # CRITICAL: This must be public so employers/third-parties can check it
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, enrollment_id):
+        try:
+            # 1. Fetch Enrollment with related data for speed
+            enrollment = get_object_or_404(
+                Enrollment.objects.select_related('user', 'course', 'package'),
+                id=enrollment_id
+            )
+
+            # 2. Determine Validity
+            # A certificate is valid if the status is 'completed'
+            # You can add extra checks here (e.g., must be Premium)
+            is_valid = (enrollment.status == 'completed')
+
+            # 3. Construct the Response Data
+            data = {
+                "is_valid": is_valid,
+                "status": enrollment.status,
+                "student_name": enrollment.user.get_full_name() or enrollment.user.username,
+                "course_title": enrollment.course.title,
+                "enrollment_date": enrollment.created_at,
+                "completion_date": enrollment.updated_at if is_valid else None,
+                "certificate_id": enrollment.id, # Or enrollment.certificate_code
+            }
+
+            return Response(data, status=status.HTTP_200_OK)
+
+        except Enrollment.DoesNotExist:
+            return Response(
+                {"error": "Certificate record not found.", "is_valid": False},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 # Admin View sets
 class AdminQuizOverviewViewSet(viewsets.ViewSet):
@@ -1585,11 +2024,24 @@ class AdminCourseQuizStatsViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
 class AdminModuleViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Module.objects.prefetch_related(
-        'lessons__quizzes'
-    ).select_related('course')
+    queryset = Module.objects.select_related('course')
     permission_classes = [IsAdminUser]
-    serializer_class = ModuleSerializer
+
+    def get_serializer_class(self):
+        # 1. For List/Search: Return light data
+        if self.action == 'list':
+            return AdminModuleListSerializer
+
+        return ModuleSerializer
+
+    def get_queryset(self):
+        # Optimization: Only load the heavy "lessons & quizzes" data
+        # when we are actually going to show them (retrieve).
+        if self.action == 'retrieve':
+            return Module.objects.prefetch_related('lessons__quiz').select_related('course')
+
+        # For list, we just need basic info
+        return Module.objects.select_related('course')
 
     filter_backends = [filters.SearchFilter]
     search_fields = ['title', 'description']

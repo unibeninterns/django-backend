@@ -9,7 +9,13 @@ from django.conf import settings
 from .models import Payment, Enrollment
 from .utils import verify_flutterwave_payment, verify_flutterwave_webhook_signature
 from module.models import CertificatePayment, CertificateRequest
-from payments.models import Payout
+from payments.models import Payout, Package, AddOn
+from module.models import CapstoneFeedbackRequest, ResearchClinic, Course, CapstoneProject
+from django.contrib.auth import get_user_model
+
+
+User = get_user_model()
+
 
 @csrf_exempt
 @require_POST
@@ -34,6 +40,9 @@ def flutterwave_webhook(request):
 
             elif tx_ref.startswith('CERT-'):
                 return _handle_certificate_charge_completed(data)
+
+            elif tx_ref.startswith('ADDON-'):
+                return _handle_addon_charge_completed(data)
 
             else:
                 # Unknown payment reference — acknowledge but log later
@@ -262,6 +271,71 @@ def _handle_certificate_charge_completed(data):
         return JsonResponse({
             'error': f'Error processing certificate payment: {str(e)}'
         }, status=500)
+
+
+def _handle_addon_charge_completed(data):
+    tx_ref = data.get('tx_ref')
+    # Format: ADDON-{addon_id}-{course_id}-{user_id}-{uuid}
+    try:
+        parts = tx_ref.split('-')
+        addon_id = int(parts[1])
+        course_id = int(parts[2])
+        user_id = int(parts[3])
+
+        user = User.objects.get(id=user_id)
+        course = Course.objects.get(id=course_id)
+        addon = AddOn.objects.get(id=addon_id)  # The addon they bought
+
+        # --- ACTION 1: ONE-ON-ONE CLINIC ---
+        if 'one-on-one' in addon.feature.name.lower():
+            ResearchClinic.objects.create(
+                student=user,
+                course=course,
+                status='active'
+            )
+            # Send email: "Your clinic is active, wait for tutor assignment."
+
+        # --- ACTION 2: CAPSTONE FEEDBACK ---
+        elif 'feedback' in addon.feature.name.lower():
+            # Create the entitlement record
+            CapstoneFeedbackRequest.objects.create(
+                student=user,
+                course=course,
+                status='paid'  # Ready to be used once project is submitted
+            )
+
+            # If they ALREADY submitted a project, link it now
+            existing_project = CapstoneProject.objects.filter(student=user, instructions__course=course).first()
+            if existing_project:
+                req = CapstoneFeedbackRequest.objects.get(student=user, course=course)
+                req.project = existing_project
+                req.status = 'requested'  # Auto-request if project exists
+                req.save()
+
+        # --- ACTION 3: PREMIUM UPGRADE ---
+        elif 'premium' in addon.feature.name.lower():
+            # 1. Find the Premium Package for this specific course
+            premium_package = Package.objects.filter(
+                course=course,
+                package_type='premium'
+            ).first()
+
+            if premium_package:
+                # 2. Find the Student's existing enrollment
+                enrollment = Enrollment.objects.filter(user=user, course=course).first()
+
+                if enrollment:
+                    # 3. Upgrade the link
+                    enrollment.package = premium_package
+                    enrollment.save()
+            else:
+                print(f"Error: No Premium package found for course {course.title}")
+
+        return JsonResponse({'status': 'success', 'message': 'Add-on processed'})
+
+    except Exception as e:
+        print(f"Add-on Error: {str(e)}")
+        return JsonResponse({'status': 'failed', 'message': str(e)}, status=500)
 
 
 def _handle_certificate_charge_failed(data):

@@ -30,7 +30,6 @@ urlpatterns = [
 # router.register(r'payments', PaymentViewSet, basename='payment')
 # router.register(r'enrollments', EnrollmentViewSet, basename='enrollment')
 # router.register(r'packages', PackageViewSet, basename='package')
-# router.register(r'addons', AddOnViewSet, basename='addon')
 #
 # urlpatterns = [
 #     # API endpoints
