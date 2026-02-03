@@ -29,7 +29,7 @@ def create_flutterwave_payment(user, package, amount, redirect_url):
         },
         "customizations": {
             "title": "Learning Management System",
-            "description": f"Payment for {package.name} package",
+            "description": f"Payment for {package.feature.name} package",
         }
     }
     

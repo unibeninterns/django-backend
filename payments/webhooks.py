@@ -34,6 +34,8 @@ def flutterwave_webhook(request):
 
         if event == 'charge.completed':
             tx_ref = data.get('tx_ref', '')
+            print(f"Event Received: '{event}'")
+            print(f"TX Ref Received: '{tx_ref}'")
 
             if tx_ref.startswith('COURSE_'):
                 return _handle_charge_completed(data)
@@ -42,9 +44,11 @@ def flutterwave_webhook(request):
                 return _handle_certificate_charge_completed(data)
 
             elif tx_ref.startswith('ADDON-'):
+                print('addon')
                 return _handle_addon_charge_completed(data)
 
             else:
+                print(f"⚠️ Unhandled TX Ref: {tx_ref}")
                 # Unknown payment reference — acknowledge but log later
                 return JsonResponse({
                     'status': 'success',
@@ -274,6 +278,7 @@ def _handle_certificate_charge_completed(data):
 
 
 def _handle_addon_charge_completed(data):
+    print('started add on')
     tx_ref = data.get('tx_ref')
     # Format: ADDON-{addon_id}-{course_id}-{user_id}-{uuid}
     try:
@@ -314,20 +319,27 @@ def _handle_addon_charge_completed(data):
 
         # --- ACTION 3: PREMIUM UPGRADE ---
         elif 'premium' in addon.feature.name.lower():
+            print('premium')
             # 1. Find the Premium Package for this specific course
             premium_package = Package.objects.filter(
                 course=course,
-                package_type='premium'
+                package_type='premium', # change this to premium 2 to differentiate between regular and add on payment
+                is_active = True
             ).first()
 
             if premium_package:
-                # 2. Find the Student's existing enrollment
-                enrollment = Enrollment.objects.filter(user=user, course=course).first()
+                print(f"premium package found {premium_package.id}, name:{premium_package.id}")
+                # FIX: Use 'package__course' and 'student' (or whatever your user field is named)
+                enrollment = Enrollment.objects.filter(
+                    student=user,
+                    package__course=course
+                ).first()
 
                 if enrollment:
-                    # 3. Upgrade the link
+                    print(f"Enrollment ID is {enrollment.id}")
                     enrollment.package = premium_package
                     enrollment.save()
+                    print(f"Upgrade Successful: {user.email} -> Premium")
             else:
                 print(f"Error: No Premium package found for course {course.title}")
 

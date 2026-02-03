@@ -2,6 +2,7 @@ import time
 import csv
 from io import BytesIO
 from django.contrib import admin, messages
+from django.shortcuts import render
 from rest_framework.generics import get_object_or_404
 
 from core.common.utils.progress_aggregates import get_course_completion_percentage
@@ -12,6 +13,8 @@ from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.renderers import JSONRenderer
+from rest_framework_csv.renderers import CSVRenderer
 from django.urls import reverse
 from django.conf import settings
 from django.utils import timezone
@@ -321,12 +324,35 @@ class PaymentViewSet(viewsets.ModelViewSet):
         transaction_id = request.query_params.get('transaction_id')
         status_param = request.query_params.get('status')
 
-        if payment.status != 'pending':
+        # --- 1. HANDLE RACE CONDITION (Webhook finished first?) ---
+        if payment.status == 'completed':
+            # If the webhook already finished the job, just return success immediately.
+            # We don't need to verify with Flutterwave again.
+
+            # Find the enrollment (either new or existing)
+            enrollment = Enrollment.objects.filter(payment=payment).first()
+            if not enrollment and payment.add_ons.exists():
+                enrollment = Enrollment.objects.filter(
+                    user=payment.user,
+                    package__course=payment.course
+                ).first()
+
+            return Response({
+                'status': 'completed',
+                'message': 'Payment verified successfully (via Webhook)',
+                'payment_id': payment.id,
+                'enrollment_id': enrollment.pk if enrollment else None,
+                'package_name': payment.package.name if payment.package else 'Add-on Purchase'
+            })
+
+        # If it's failed or abandoned, we stop here.
+        elif payment.status != 'pending':
             return Response(
-                {'error': 'Payment already processed'},
+                {'error': f'Payment status is {payment.status}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # --- 2. HANDLE CANCELLATION ---
         if status_param == 'cancelled':
             payment.status = 'abandoned'
             payment.save()
@@ -343,6 +369,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 'payment_id': payment.id
             })
 
+        # --- 3. VERIFY WITH FLUTTERWAVE ---
         if transaction_id:
             success, response = verify_flutterwave_payment(transaction_id)
 
@@ -351,21 +378,52 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 payment.transaction_id = transaction_id
                 payment.save()
 
+                # A. Handle Standard Package Enrollment
                 enrollment = Enrollment.objects.filter(payment=payment).first()
                 if enrollment:
                     enrollment.status = 'active'
                     enrollment.save()
+
+                # B. Handle Add-ons / Upgrades
+                if payment.add_ons.exists():
+                    print("add on exists")
+                    # If this is a standalone add-on purchase, there is no NEW enrollment
+                    # linked to this specific payment. We must find the OLD existing one.
+                    if not enrollment:
+                        enrollment = Enrollment.objects.filter(
+                            user=payment.user,
+                            package__course=payment.course
+                        ).first()
+
+                    # Now apply the Add-ons to whichever enrollment we found
+                    if enrollment:
+                        for addon in payment.add_ons.all():
+                            enrollment.add_ons.add(addon)
+
+                            # (Optional) Handle Premium Upgrade logic here immediately
+                            if 'premium' in addon.feature.name.lower():
+                                print("premium")
+                                premium_pkg = Package.objects.filter(
+                                    course=payment.course,
+                                    package_type='premium',
+                                    is_active=True
+                                ).first()
+                                if premium_pkg:
+                                    enrollment.package = premium_pkg
+                                    enrollment.save()
+                                    print("enrollment saved")
 
                 response_data = {
                     'status': 'completed',
                     'message': 'Payment verified successfully',
                     'payment_id': payment.id,
                     'enrollment_id': enrollment.pk if enrollment else None,
-                    'package_name': payment.package.name if payment.package else None
+                    'package_name': payment.package.name if payment.package else 'Add-on Purchase'
                 }
 
                 return Response(response_data)
             else:
+                # Payment Failed Logic
                 payment.status = 'failed'
                 payment.save()
 
@@ -486,7 +544,7 @@ class PackageViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
-class AddOnViewSet(viewsets.ReadOnlyModelViewSet):
+class AddOnViewSet(viewsets.ModelViewSet):
     # Fix: Show Active features, not Inactive ones
     queryset = AddOn.objects.filter(is_active=True)
     serializer_class = AddOnSerializer
@@ -496,56 +554,70 @@ class AddOnViewSet(viewsets.ReadOnlyModelViewSet):
         Allow anyone to view the list, but only logged-in users to buy.
         """
         if self.action == 'purchase':
-            return [IsAuthenticated, IsStudent]
-        return [AllowAny]
+            return [IsAuthenticated(), IsStudent()]
+        return [AllowAny()]
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], url_path='purchase', permission_classes=[IsStudent])
     def purchase(self, request, pk=None):
         """
-        Endpoint: POST /api/addons/{id}/purchase/
-        Body: {"course_id": 12}
+        Initiate Add-on payment using the existing 'Payment' model pattern.
         """
         addon = self.get_object()
         user = request.user
-
-        # 1. Get the specific course they want this Add-on for
         course_id = request.data.get('course_id')
-        if not course_id:
-            return Response(
-                {"error": "course_id is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
 
+        # 1. Validation
+        if not course_id:
+            return Response({"error": "course_id is required."}, status=400)
         course = get_object_or_404(Course, pk=course_id)
 
-        # 2. Prevent Double Buying (Optional but recommended)
-        # e.g., If they are already Premium, don't let them buy Premium again
-        if 'premium' in addon.feature.name.lower():
-            enrollment = user.enrollments.filter(course=course).first()
-            if enrollment and enrollment.package.package_type == 'premium':
-                return Response(
-                    {"error": "You are already a Premium student for this course."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        # 2. Create the Payment Record LOCALLY first (Stateful)
+        # We generate the transaction ID here, just like initiate_package
+        tx_ref = f"ADDON_{user.id}_{addon.id}_{int(time.time())}"
 
-        # 3. Initiate Flutterwave Payment
-        try:
-            # call the service function we wrote earlier
-            success, data = initiate_addon_payment(user, addon, course)
+        payment = Payment.objects.create(
+            user=user,
+            course=course,
+            package=None,  # It's an add-on only, so no package
+            total_amount=addon.price,
+            payment_option='card',
+            transaction_id=tx_ref,
+            status='pending'
+        )
 
-            if success:
-                return Response({
-                    "message": "Payment initiated",
-                    "payment_link": data['link'],  # URL from Flutterwave
-                    "tx_ref": data['tx_ref']
-                })
-            else:
-                return Response(
-                    {"error": "Could not initiate payment", "details": data},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+        # Link the specific add-on to this payment
+        payment.add_ons.add(addon)
+
+        # 3. Build the specific "Verify" URL
+        # This sends them back to your existing verification view
+        redirect_url = request.build_absolute_uri(
+            reverse('payment-verify', kwargs={'pk': payment.pk})
+        )
+
+        # 4. Initiate Flutterwave (Reusing your helper)
+        # Note: We pass 'addon' as the package strictly for the description/price
+        # inside your helper function.
+        payment_link, flutterwave_ref = create_flutterwave_payment(
+            user=user,
+            package=addon,  # Ensure your helper can read addon.name/price
+            amount=addon.price,
+            redirect_url=redirect_url
+        )
+
+        if payment_link:
+            # Update the record with the ref from Flutterwave
+            payment.flutterwave_ref = flutterwave_ref
+            payment.save()
+
+            return Response({
+                "message": "Payment initiated",
+                "payment_link": payment_link,
+                "tx_ref": tx_ref
+            })
+        else:
+            payment.status = 'failed'
+            payment.save()
+            return Response({"error": "Could not initiate payment"}, status=500)
 
 class AdminPaymentStatsViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
@@ -766,7 +838,7 @@ class AdminAnalyticsViewSet(viewsets.ViewSet):
             'profit': total_revenue - total_payouts
         })
 
-    @action(detail=False, methods=['get'], url_path='revenue/by-course')
+    @action(detail=False, methods=['get'], url_path='revenue/by-course', renderer_classes=[JSONRenderer, CSVRenderer])
     def revenue_by_course(self, request: Request):
         search = request.query_params.get('search')
         month = request.query_params.get('month')  # YYYY-MM
@@ -792,17 +864,20 @@ class AdminAnalyticsViewSet(viewsets.ViewSet):
         results = []
 
         for row in revenue_data:
-            payouts = Payout.objects.filter(
-                status='completed'
-            ).aggregate(total=Sum('amount'))['total'] or 0
+            payouts_qs = Payout.objects.filter(
+                status='completed',
+                course_id=row['course_id']
+            )
 
-            profit = row['revenue'] - payouts
+            payout_total = payouts_qs.aggregate(total=Sum('amount'))['total'] or 0
+
+            profit = row['revenue'] - payout_total
             margin = (profit / row['revenue'] * 100) if row['revenue'] else 0
 
             results.append({
                 'course': row['course__title'],
                 'revenue': row['revenue'],
-                'tutor_payout': payouts,
+                'tutor_payout': payout_total,
                 'profit': profit,
                 'profit_margin': round(margin, 2)
             })
@@ -1125,12 +1200,7 @@ class AdminAnalyticsViewSet(viewsets.ViewSet):
         return export_csv('payouts', headers, rows)
 
 
-    @action(
-        detail=False,
-        methods=['get'],
-        url_path='revenue/monthly',
-        permission_classes=[IsAdminUser]
-    )
+    @action(detail=False, methods=['get'], url_path='revenue/monthly', permission_classes=[IsAdminUser])
     def monthly_revenue_comparison(self, request):
         # Parse month (YYYY-MM)
         month_param = request.query_params.get('month')
@@ -1240,12 +1310,7 @@ class AdminAnalyticsViewSet(viewsets.ViewSet):
             }
         })
 
-    @action(
-        detail=False,
-        methods=['get'],
-        url_path='revenue/per-course',
-        permission_classes=[IsAdminUser]
-    )
+    @action(detail=False, methods=['get'], url_path='revenue/per-course', permission_classes=[IsAdminUser])
     def revenue_vs_payouts_per_course(self, request):
         month_param = request.query_params.get('month')
         search = request.query_params.get('search')
@@ -1376,12 +1441,7 @@ class AdminAnalyticsViewSet(viewsets.ViewSet):
 
         return Response(data)
 
-    @action(
-        detail=False,
-        methods=['get'],
-        url_path='revenue/weekly',
-        permission_classes=[IsAdminUser]
-    )
+    @action(detail=False, methods=['get'], url_path='revenue/weekly', permission_classes=[IsAdminUser])
     def revenue_vs_payouts_weekly(self, request):
         month_param = request.query_params.get('month')
         now = timezone.now()
@@ -1428,12 +1488,7 @@ class AdminAnalyticsViewSet(viewsets.ViewSet):
             "data": data
         })
 
-    @action(
-        detail=False,
-        methods=['get'],
-        url_path='students/engagement',
-        permission_classes=[IsAdminUser]
-    )
+    @action(detail=False, methods=['get'], url_path='students/engagement', permission_classes=[IsAdminUser])
     def student_engagement_weekly(self, request):
         month_param = request.query_params.get('month')
         now = timezone.now()
@@ -1474,12 +1529,7 @@ class AdminAnalyticsViewSet(viewsets.ViewSet):
             "weekly_engagement": results
         })
 
-    @action(
-        detail=False,
-        methods=['get'],
-        permission_classes=[IsAdminUser],
-        url_path='analytics/course-completion'
-    )
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminUser], url_path='analytics/course-completion')
     def course_completion_overview(self, request):
         course_id = request.query_params.get('course_id')
 
@@ -1772,3 +1822,20 @@ class AdminCertificatePaymentViewSet(viewsets.ModelViewSet):
                 # FIX 2: Use status='revoked' instead of is_revoked=True
                 'revoked': Certificate.objects.filter(status='revoked').count(),
             })
+
+
+def payment_success_view(request):
+    """
+    Renders the HTML page that users see after being redirected back from Flutterwave.
+    """
+    status = request.GET.get('status', 'unknown')
+    tx_ref = request.GET.get('tx_ref', 'N/A')
+    transaction_id = request.GET.get('transaction_id', '')
+
+    context = {
+        'status': status,
+        'tx_ref': tx_ref,
+        'transaction_id': transaction_id
+    }
+
+    return render(request, 'payment_success.html', context)

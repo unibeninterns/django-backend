@@ -27,7 +27,7 @@ from core.common.utils.progress_aggregates import (
 )
 from django.db import models
 from rest_framework.views import APIView
-from django.http import HttpResponse, FileResponse
+from django.http import HttpResponse, FileResponse, Http404
 import csv
 from django.utils.timezone import localtime
 from rest_framework.decorators import action
@@ -255,7 +255,7 @@ class ModuleViewSet(viewsets.ModelViewSet):
             print(f"Updated Context: {context}")
         return context
 
-    @action(detail=True, methods=['post'], url_path='start')
+    @action(detail=True, methods=['post'], url_path='start-module')
     def start_module(self, request, pk=None):
         user = request.user
         module = self.get_object()
@@ -402,7 +402,7 @@ class LessonViewSet(viewsets.ModelViewSet):
             })
         return context
 
-    @action(detail=True, methods=['post'], permission_classes=[IsStudent, CanAccessContent], url_path='start')
+    @action(detail=True, methods=['post'], permission_classes=[IsStudent, CanAccessContent], url_path='start-lesson')
     def start_lesson(self, request, pk=None):
         user = request.user
         lesson = self.get_object()
@@ -424,6 +424,7 @@ class LessonViewSet(viewsets.ModelViewSet):
                 progress.transition_to(ContentState.IN_PROGRESS)
 
         except ValueError as e:
+            print(e)
             # Catches issues like trying to start a LOCKED lesson
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -499,6 +500,7 @@ class LessonViewSet(viewsets.ModelViewSet):
             state = get_content_state(user, 'lesson', lesson.id)
             if state in ContentState.accessible_states():
                 accessible_ids.append(lesson.id)
+        print(f'accessible lesson ids: {accessible_ids}')
 
         accessible_queryset = Lesson.objects.filter(id__in=accessible_ids)
 
@@ -543,7 +545,7 @@ class ContentItemViewSet(viewsets.ModelViewSet):
         """
         return super().get_serializer_context()
 
-    @action(detail=True, methods=['post'], url_path='start')
+    @action(detail=True, methods=['post'], url_path='start-content')
     def start_content(self, request, pk=None):
         user = request.user
         content_item = self.get_object()
@@ -575,12 +577,11 @@ class ContentItemViewSet(viewsets.ModelViewSet):
 
         # 2. Transition to COMPLETED
         try:
-            # Only move to IN_PROGRESS if we are currently AVAILABLE (e.g. skipped 'start')
-            if progress.state == ContentState.AVAILABLE.value:
-                progress.transition_to(ContentState.IN_PROGRESS)
+            # Only move to COMPLETED if we are currently IN_PROGRESS
+            if progress.state == ContentState.IN_PROGRESS.value:
+                progress.transition_to(ContentState.COMPLETED)
 
-            # Now it is safe to move to COMPLETED
-            progress.transition_to(ContentState.COMPLETED)
+
 
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -616,11 +617,19 @@ class QuizViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         print("→ QuizViewSet.get_permissions action =", self.action)
         """Apply permissions based on action."""
-        crud_actions = {'create', 'update', 'partial_update', 'destroy', 'list'}
+        crud_actions = {'create', 'update', 'partial_update', 'destroy'}
         if self.action in crud_actions:
             return [IsAdminUser()]
+
+        # 2. SHARED Actions (List & Retrieve)
+        # We must check the role here, otherwise Admins might get blocked by IsStudent
+        # or Students blocked by IsAdminUser.
         elif self.action in {'list', 'retrieve'}:
+            if getattr(self.request.user, 'role', None) == 'admin':
+                return [IsAdminUser()]
             return [IsStudent(), CanAccessContent()]
+
+        # 3. Student Specific Actions
         elif self.action == 'start_quiz':
             return [IsStudent(), CanStartContent()]
         elif self.action == 'complete_quiz':
@@ -661,6 +670,39 @@ class QuizViewSet(viewsets.ModelViewSet):
         # --- 3. FALLBACK ---
         return Quiz.objects.none()
 
+    def get_object(self):
+        """
+        Override get_object to provide custom error messages instead of generic 404s.
+        """
+        # 1. Try to get the object using the standard logic
+        try:
+            return super().get_object()
+        except Http404:
+            # 2. If it fails, let's investigate WHY to give a better message
+
+            # Get the ID from the URL
+            lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+            quiz_id = self.kwargs.get(lookup_url_kwarg)
+            user = self.request.user
+
+            # Check if the quiz actually exists in the database at all
+            quiz_exists = Quiz.objects.filter(id=quiz_id).first()
+
+            if quiz_exists:
+                # Scenario A: It exists, but it is a DRAFT (unpublished)
+                if quiz_exists.status != 'published':
+                    raise PermissionDenied({"detail": "This quiz is currently not available."})
+
+                # Scenario B: It exists and is published, but the user hasn't unlocked it yet
+                # (This happens if your get_queryset filters out locked items for lists)
+                if user.role == 'student':
+                    # We can verify if they have progress
+                    # If they have no progress or it's locked, we can be specific
+                    raise PermissionDenied({"detail": "You do not have access to this quiz yet."})
+
+            # Scenario C: It genuinely doesn't exist (Bad ID)
+            raise Http404("Quiz not found.")
+
     def get_serializer_context(self):
         """Add quiz progress details to serializer context."""
         context = super().get_serializer_context()
@@ -695,6 +737,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         first_question_id = first_question.id if first_question else None
 
         if progress:
+            print(f"Yes, the progress ID is {progress.id}")
             # If the quiz is failed or completed, allow retry if max not reached
             if progress.state in [ContentState.FAILED.value, ContentState.COMPLETED.value]:
                 if progress.attempts >= quiz.max_attempts:
@@ -706,10 +749,16 @@ class QuizViewSet(viewsets.ModelViewSet):
                 # Start a new attempt
                 progress.attempts += 1
                 progress.transition_to(ContentState.IN_PROGRESS)
+                print(progress.state)
                 progress.save(update_fields=['state', 'attempts', 'last_accessed'])
 
-            elif progress.state == ContentState.IN_PROGRESS.value:
+            elif progress.state == ContentState.AVAILABLE.value:
+                progress.attempts += 1
+                progress.transition_to(ContentState.IN_PROGRESS)
                 # Already in progress → just return current state, no new attempt
+                pass
+
+            elif progress.state == ContentState.IN_PROGRESS.value:
                 pass
 
         else:
@@ -1482,7 +1531,12 @@ class CertificateRequestViewSet(viewsets.ModelViewSet):
             # Only admins can approve/deny/delete
             permission_classes = [IsAdminUser]
         elif self.action in {"list", "retrieve"}:
-            permission_classes = [IsStudent, CanAccessContent]
+
+            if self.request.user.is_authenticated and getattr(self.request.user, 'role', None) == 'admin':
+                return [IsAdminUser()]
+
+            # Default for everyone else (Students)
+            return [IsStudent(), CanAccessContent()]
         else:
             permission_classes = [AllowAny]
         return [permission() for permission in permission_classes]
@@ -1496,6 +1550,35 @@ class CertificateRequestViewSet(viewsets.ModelViewSet):
 
         # If the user is a student, only show their own requests
         return CertificateRequest.objects.filter(student=user)
+
+    def perform_update(self, serializer):
+        """
+        Override the update behavior to check for status changes.
+        If status becomes 'approved', notify the student.
+        """
+        # 1. Save the update first to ensure the DB is consistent
+        instance = serializer.save()
+
+        # 2. Check if the status is now 'approved'
+        # (You can match this string to whatever your Front-end sends: 'approved' or 'STATUS_APPROVED')
+        if instance.status == 'approved':  # or CertificateRequest.STATUS_APPROVED
+
+            # 3. Import your notification helper (adjust path to where notify_user lives)
+            from assessments.services import notify_user
+
+            message = f"Great news! Your certificate request for '{instance.course.title}' has been approved. You can now proceed to payment."
+
+            # 4. Send the Notification (DB + WebSocket)
+            notify_user(
+                user=instance.student,
+                message=message,
+                payload={
+                    'type': 'CERTIFICATE_APPROVED',
+                    'course_id': instance.course.id,
+                    'request_id': instance.id,
+                    'action_url': f"http://127.0.0.1:8000/api/module/certificate-requests/{instance.id}/pay/"
+                }
+            )
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
@@ -1533,7 +1616,7 @@ class CertificateRequestViewSet(viewsets.ModelViewSet):
 
         if package.package_type != 'premium':
             raise serializers.ValidationError(
-                "You do not currently have access to this action"
+                "You do not currently have access to this action, premium package required"
             )
 
         # 3. Check for existing requests (Handled by your model's UniqueConstraint,
@@ -1570,20 +1653,17 @@ class CertificateRequestViewSet(viewsets.ModelViewSet):
             }, status=400)
 
         # 2. Reference Generation
-        cert_price = getattr(settings, 'CERTIFICATE_PRICE', 5000.00)
+        cert_price = getattr(settings, 'CERTIFICATE_PRICE', 10000.00)
         tx_ref = f"CERT-{cert_request.id}-{uuid.uuid4().hex[:6].upper()}"
 
         # 3. Create or Update DB Record (The "Safe" Way)
-        payment, created = CertificatePayment.objects.update_or_create(
-            student=user,
-            course=cert_request.course,
+        payment, created = CertificatePayment.objects.update_or_create(student=user, course=cert_request.course,
             defaults={
                 'amount': cert_price,
                 'currency': "NGN",
                 'reference': tx_ref,
                 'status': 'pending'
-            }
-        )
+            })
 
         _log_progress_event(
             user=payment.student,
@@ -1625,37 +1705,45 @@ class CertificateRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], permission_classes=[IsStudent], url_path='verify')
     def verify(self, request, pk=None):
-        # 1. Get the Certificate Request
+        """
+        Verify payment for a certificate request and issue the certificate if successful.
+        """
         cert_request = self.get_object()
         user = request.user
 
-        print(f"DEBUG: Current User: {user.id} - {user.username}")
-        print(f"DEBUG: Request Course: {cert_request.course.id} - {cert_request.course.title}")
-        # 2. Find the associated CertificatePayment
-        # We use .filter().first() to avoid a crash if no payment exists yet
+        # Imports (Ideally, move these to the top of your file to avoid overhead)
+        from payments.utils import verify_flutterwave_payment
+        from .services import generate_certificate_pdf
+        import hashlib
+
+        # 1. Retrieve the Payment Record
+        # We assume the user creates a payment intent via the 'pay' endpoint first.
         payment = CertificatePayment.objects.filter(
             student=user,
             course=cert_request.course
         ).first()
 
-        if payment:
-            print(f"DEBUG: Found Payment ID: {payment.id}")
-        else:
-            print("DEBUG: No payment found matching that User + Course combination.")
-            # Optional: Print ALL payments for this user to see what exists
-            all_user_payments = CertificatePayment.objects.filter(student=user)
-            print(f"DEBUG: This user actually has payments for courses: {[p.course.id for p in all_user_payments]}")
+        if not payment:
+            return Response(
+                {'error': 'No payment record found. Please initiate payment first.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        transaction_id = request.query_params.get('transaction_id')
-        status_param = request.query_params.get('status')
-
-        # 3. Check if already processed (Avoid double-issuance)
+        # 2. Check for Existing Success (Idempotency)
+        # If already paid or issued, return success immediately to prevent duplicate processing.
         if payment.status == 'paid' or cert_request.status == 'issued':
+            # Try to find the existing certificate to return its data
+            existing_cert = Certificate.objects.filter(student=user, course=cert_request.course).first()
             return Response({
                 'status': 'completed',
                 'message': 'Payment already processed and certificate issued.',
-                'certificate_id': cert_request.id
+                'certificate_id': existing_cert.id if existing_cert else None,
+                'download_url': existing_cert.pdf_file.url if (existing_cert and existing_cert.pdf_file) else None
             })
+
+        # 3. Parse Query Params
+        transaction_id = request.query_params.get('transaction_id')
+        status_param = request.query_params.get('status')
 
         # 4. Handle Cancelled Status
         if status_param == 'cancelled':
@@ -1667,73 +1755,77 @@ class CertificateRequestViewSet(viewsets.ModelViewSet):
 
             return Response({
                 'status': 'cancelled',
-                'message': 'Payment was cancelled',
+                'message': 'Payment was cancelled by user.',
                 'request_id': cert_request.id
             })
 
-        # 5. Handle Verification with Flutterwave
-        if transaction_id:
-            from payments.utils import verify_flutterwave_payment  # Ensure this helper is imported
-            success, response = verify_flutterwave_payment(transaction_id)
+        # 5. Validate Input before Calling API
+        if not transaction_id:
+            return Response(
+                {'error': 'Transaction ID is required for verification.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-            if success:
-                # Update Payment
-                payment.status = 'paid'
-                payment.paid_at = timezone.now()
-                payment.save()
+        # 6. Verify with Payment Provider (Flutterwave)
+        success, gateway_response = verify_flutterwave_payment(transaction_id)
 
-                # Update Certificate Request to FINAL state
-                # Generate Serial and Issue Certificate
-                cert_request.status = 'issued'
-                cert_request.save()
+        if not success:
+            payment.status = 'failed'
+            payment.save()
 
-                cert_number = f"QN-{timezone.now().year}-{cert_request.id}"
+            cert_request.status = 'payment_failed'
+            cert_request.save()
 
-                raw_string = f"{user.id}-{cert_request.course.id}-{timezone.now().isoformat()}"
-                v_hash = hashlib.sha256(raw_string.encode()).hexdigest()
+            return Response({
+                'status': 'failed',
+                'error': 'Payment verification failed with provider.',
+                'request_id': cert_request.id
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-                certificate, created = Certificate.objects.get_or_create(
-                    student=user,
-                    course=cert_request.course,
-                    defaults={
-                        'certificate_number': cert_number,
-                        'verification_hash': v_hash,
-                        # 'verification_code' is auto-generated by UUID default in model
-                    }
-                )
+        # 7. Payment Successful - Finalize Transaction
+        payment.status = 'paid'
+        payment.paid_at = timezone.now()
+        payment.transaction_id = transaction_id  # Ensure we store the verified ID
+        payment.save()
 
+        # Update Request Status
+        cert_request.status = 'issued'
+        cert_request.save()
 
-                from.services import generate_certificate_pdf
+        # 8. Issue the Certificate
+        # Generate unique identifiers
+        cert_number = f"QN-{timezone.now().year}-{cert_request.id}"
+        raw_string = f"{user.id}-{cert_request.course.id}-{timezone.now().isoformat()}"
+        v_hash = hashlib.sha256(raw_string.encode()).hexdigest()
 
-                if created or not certificate.pdf_file:
-                    try:
-                        generate_certificate_pdf(certificate)
-                    except Exception as e:
-                        print(f"PDF Generation failed: {e}")
-
-                return Response({
-                    'status': 'completed',
-                    'message': 'Payment verified and certificate issued!',
-                    'certificate_id': certificate.id,
-                    'download_url': certificate.pdf_file.url if certificate.pdf_file else None
-                })
-            else:
-                payment.status = 'failed'
-                payment.save()
-
-                cert_request.status = 'payment_failed'
-                cert_request.save()
-
-                return Response({
-                    'status': 'failed',
-                    'error': 'Payment verification failed with provider.',
-                    'request_id': cert_request.id
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response(
-            {'error': 'Transaction ID is required'},
-            status=status.HTTP_400_BAD_REQUEST
+        certificate, created = Certificate.objects.get_or_create(
+            student=user,
+            course=cert_request.course,
+            defaults={
+                'certificate_number': cert_number,
+                'verification_hash': v_hash,
+                # 'verification_code' handles itself via model default
+            }
         )
+
+        # 9. Generate PDF (Critical Step)
+        if created or not certificate.pdf_file:
+            try:
+                generate_certificate_pdf(certificate)
+                # Refresh from DB to ensure file path is correct after saving
+                certificate.refresh_from_db()
+            except Exception as e:
+                # Log this error specifically, but don't fail the user request completely.
+                # The user paid, they own the cert, even if PDF generation glitched.
+                print(f"CRITICAL: PDF Generation failed for Cert ID {certificate.id}: {e}")
+                # Ideally: trigger a background task to retry PDF generation here.
+
+        return Response({
+            'status': 'completed',
+            'message': 'Payment verified and certificate issued successfully!',
+            'certificate_id': certificate.id,
+            'download_url': certificate.pdf_file.url if certificate.pdf_file else None
+        })
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser], url_path='force-generate-cert')
     def force_generate_cert(self, request, pk=None):
@@ -1848,7 +1940,7 @@ class DownloadTranscriptView(APIView):
         enrollment = get_object_or_404(
             Enrollment.objects.select_related('package'),
             user=user,
-            course_id=course_id
+            package__course_id=course_id
         )
 
         # 2. THE GATEKEEPER: Check for Premium
@@ -1868,7 +1960,7 @@ class DownloadTranscriptView(APIView):
         # 4. Generate PDF (Pseudo-code for WeasyPrint/ReportLab)
         from .utils import generate_transcript_pdf
         try:
-            pdf_bytes = generate_transcript_pdf(user, enrollment.course)
+            pdf_bytes = generate_transcript_pdf(user, enrollment.package.course)
         except Exception as e:
             return Response(
                 {"error": f"Failed to generate PDF: {str(e)}"},
@@ -2094,7 +2186,7 @@ class AdminQuizViewSet(viewsets.ModelViewSet):
                     "max_attempts": quiz.max_attempts,
                     "is_required_for_module": quiz.is_required_for_module,
                     "status": quiz.status,
-                    "published_at": quiz.published_at,
+                    "published": quiz.is_published,
                 },
                 "questions": [
                     {
@@ -2720,28 +2812,33 @@ class AdminLiveSessionStatsViewSet(viewsets.ViewSet):
 
 class PublicCertificateVerificationView(APIView):
     """
-    Public endpoint to verify a certificate via ID or verification_code
+    Public endpoint to verify a certificate via ID, verification_code, OR certificate_number
     """
     authentication_classes = []
     permission_classes = []
 
     def get(self, request, identifier):
-        # 1. Start with the verification code query (always safe)
-        query = models.Q(verification_code=identifier)
+        # 1. Start by searching text fields (Code OR Certificate Number)
+        # We use __iexact to make it case-insensitive (User can type QN-2026-1 or qn-2026-1)
+        query = (
+                models.Q(verification_code__iexact=identifier) |
+                models.Q(certificate_number__iexact=identifier)
+        )
 
-        # 2. Check if the identifier is a valid UUID before querying 'id' (Primary Key)
+        # 2. Check if the identifier is a valid UUID before querying 'id'
+        # This prevents "ValidationError: value must be a valid UUID" crashes
         try:
             uuid_obj = uuid.UUID(str(identifier))
-            # If it didn't crash, it's a valid UUID format.
-            # We can safely check the PK (id) if your PK is a UUID field.
-            # If your PK is an Integer, remove this line or handle the TypeError.
+            # If it is a valid UUID, we ALSO check the Primary Key
             query |= models.Q(id=identifier)
         except ValueError:
-            # Not a UUID? No problem, we won't check fields that expect UUIDs
+            # Not a UUID? No problem, we just stick to the text search above
             pass
 
         try:
+            # 3. Perform the Search
             certificate = Certificate.objects.select_related('student', 'course').get(query)
+
         except (Certificate.DoesNotExist, ValidationError):
             return Response(
                 {
@@ -2752,12 +2849,12 @@ class PublicCertificateVerificationView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # 4. Handle Found Certificate
         serializer = CertificateVerificationSerializer(
             certificate,
             context={'request': request}
         )
 
-        # REWRITE: Check the 'status' field string instead of 'is_revoked' boolean
         is_valid = (certificate.status == 'issued')
 
         return Response(

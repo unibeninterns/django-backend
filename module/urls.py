@@ -19,11 +19,7 @@ router.register(r'certificate-requests', CertificateRequestViewSet, basename='ce
 router.register(r'announcements', AnnouncementViewSet, basename='announcements')
 router.register(r'resources', ResourceViewSet, basename='resources')
 
-router.register(
-    r'admin-courses-quiz-stats',
-    AdminCourseQuizStatsViewSet,
-    basename='admin-courses-quiz-stats'
-)
+router.register( r'admin-courses-quiz-stats', AdminCourseQuizStatsViewSet, basename='admin-courses-quiz-stats')
 
 router.register(r'admin-courses', AdminCourseViewSet, basename='admin-courses')
 

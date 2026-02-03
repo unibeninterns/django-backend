@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 DEBUG = True
-ALLOWED_HOSTS = ['127.0.0.1', '.ngrok-free.app']
+ALLOWED_HOSTS = ['127.0.0.1', '.ngrok-free.dev']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -122,6 +122,7 @@ LOGGING = {
 
 FLUTTERWAVE_SECRET_KEY = os.getenv('FLUTTERWAVE_SECRET_KEY')
 FLUTTERWAVE_PUBLIC_KEY = os.getenv('FLUTTERWAVE_PUBLIC_KEY')
+FLUTTERWAVE_SECRET_HASH = os.getenv('FLUTTERWAVE_SECRET_HASH')
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'

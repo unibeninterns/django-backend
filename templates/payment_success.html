@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Status</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+        .icon { font-size: 50px; margin-bottom: 20px; }
+        .success { color: #28a745; }
+        .failed { color: #dc3545; }
+        .btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        {% if status == 'successful' or status == 'completed' %}
+            <div class="icon success">✓</div>
+            <h1>Payment Successful!</h1>
+            <p>Thank you for your purchase.</p>
+            <p><small>Reference: {{ tx_ref }}</small></p>
+            <a href="http://127.0.0.1:8000/api/module/courses/dashboard/" class="btn">Go to Dashboard</a>
+        {% else %}
+            <div class="icon failed">✕</div>
+            <h1>Payment Failed</h1>
+            <p>Something went wrong with the transaction.</p>
+            <p><small>Status: {{ status }}</small></p>
+            <a href="http://localhost:3000/cart" class="btn">Try Again</a>
+        {% endif %}
+    </div>
+
+</body>
+</html>
