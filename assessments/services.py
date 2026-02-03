@@ -74,7 +74,8 @@ def notify_user(user, message, payload=None):
     notification = Notification.objects.create(
         user=user,
         message=message,
-        title=title
+        title=title,
+        payload=payload if payload else {}
     )
 
     channel_layer = get_channel_layer()

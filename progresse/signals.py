@@ -150,9 +150,11 @@ def unlock_next_module(sender, instance, **kwargs):
             ).count()
 
             if completed_modules_count >= total_modules:
+                print(f"completed modules: {completed_modules_count} | total modules: {total_modules}")
                 # 2. Update Enrollment status
                 from payments.models import Enrollment  # Import inside to avoid circular imports
-                enrollment = Enrollment.objects.filter(student=user, course=course).first()
+                enrollment = Enrollment.objects.filter(user=user, package__course=course).first()
+                print(f"Enrollment is {enrollment.id}")
 
                 if enrollment and enrollment.status != 'completed':
                     enrollment.status = 'completed'

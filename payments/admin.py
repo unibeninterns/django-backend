@@ -7,7 +7,7 @@ admin.site.register(Payout)
 
 @admin.register(Feature)
 class FeatureAdmin(admin.ModelAdmin):
-    list_display = ['name', 'description']
+    list_display = ['id', 'name', 'description']
     list_filter = ['name']
     search_fields = ['name', 'description']
     list_editable = ['description']
@@ -127,6 +127,7 @@ class EnrollmentAddOnInline(admin.TabularInline):
 @admin.register(Enrollment)
 class EnrollmentAdmin(admin.ModelAdmin):
     list_display = [
+        'id',
         'user',
         'package',
         'status',
@@ -172,7 +173,7 @@ class EnrollmentAdmin(admin.ModelAdmin):
 
 @admin.register(AddOn)
 class AddOnAdmin(admin.ModelAdmin):
-    list_display = ['feature', 'price', 'is_active', 'created_at']
+    list_display = ['id', 'feature', 'price', 'is_active', 'created_at']
     list_filter = ['is_active', 'created_at']
     search_fields = ['feature']
     list_editable = ['is_active', 'price']

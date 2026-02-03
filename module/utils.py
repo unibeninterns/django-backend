@@ -17,7 +17,7 @@ def generate_transcript_pdf(user, course):
     """
 
     # 1. Get Enrollment Info
-    enrollment = Enrollment.objects.filter(user=user, course=course).first()
+    enrollment = Enrollment.objects.filter(user=user, package__course=course).first()
 
     # 2. Get Capstone Info
     # Note: We traverse backwards from user -> CapstoneProject -> Instructions -> Course

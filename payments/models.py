@@ -31,7 +31,7 @@ class AddOn(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.name} - ₦{self.price}"
+        return f"{self.feature.name} - ₦{self.price}"
 
 class Package(models.Model):
     PACKAGE_TYPES = (
@@ -166,7 +166,7 @@ class Enrollment(models.Model):
         unique_together = ('user', 'package')
 
     def __str__(self):
-        return f"{self.user.username} - {self.package.name}"
+        return f"Enrollment ID: {self.id} for {self.user.username} - {self.package.name}"
 
     def save(self, *args, **kwargs):
         # Set expiration date when status becomes active

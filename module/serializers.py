@@ -274,6 +274,7 @@ class ModuleStudentSerializer(serializers.ModelSerializer):
     previous_module_id = serializers.IntegerField(read_only=True, allow_null=True)
     next_module_id = serializers.IntegerField(read_only=True, allow_null=True)
     lessons = LessonSummarySerializer(many=True, read_only=True) # <--- Safe nesting
+    # TODO: fetch the state of the module from module completion and pass it here
 
     class Meta:
         model = Module
@@ -558,7 +559,7 @@ class CertificateVerificationSerializer(serializers.ModelSerializer):
         ]
 
     def get_status(self, obj):
-        if obj.is_revoked:
+        if obj.revoked_at:
             return "revoked"
         return "valid"
 

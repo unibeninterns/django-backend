@@ -2,6 +2,8 @@ import requests
 import uuid
 from django.conf import settings
 
+domain = "https://uneasily-avulsed-tawnya.ngrok-free.dev"  # Replace with your REAL live domain
+webhook_path = "/api/payments/webhooks/flutterwave/"
 
 def initiate_flutterwave_transfer(payout_obj):
     """
@@ -13,9 +15,6 @@ def initiate_flutterwave_transfer(payout_obj):
         "Authorization": f"Bearer {settings.FLUTTERWAVE_SECRET_KEY}",
         "Content-Type": "application/json"
     }
-
-    domain = "https://uneasily-avulsed-tawnya.ngrok-free.dev"  # Replace with your REAL live domain
-    webhook_path = "/api/payments/webhooks/flutterwave/"
 
     # Generate a unique reference if one doesn't exist
     if not payout_obj.reference:
@@ -58,21 +57,63 @@ def initiate_flutterwave_transfer(payout_obj):
 
 
 def initiate_addon_payment(user, addon, course):
-    # addon is the specific AddOn instance they clicked
+    """
+    Generates a Flutterwave payment link for an Add-on purchase.
+    Returns: (bool, dict/str) -> (Success?, Data or Error Message)
+    """
+    url = "https://api.flutterwave.com/v3/payments"
+
+    headers = {
+        "Authorization": f"Bearer {settings.FLUTTERWAVE_SECRET_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    # Generate unique reference
     tx_ref = f"ADDON-{addon.id}-{course.id}-{user.id}-{uuid.uuid4().hex[:8]}"
+
+    # FIX 1: Construct name manually to avoid 'CustomUser has no attribute get_full_name'
+    customer_name = f"{user.first_name} {user.last_name}".strip()
 
     payload = {
         "tx_ref": tx_ref,
         "amount": str(addon.price),
         "currency": "NGN",
-        "redirect_url": "https://your-frontend.com/payment-success",
+        "redirect_url": "https://uneasily-avulsed-tawnya.ngrok-free.dev/api/payments/payment-success/",  # Update this to your real frontend URL
         "customer": {
             "email": user.email,
-            "name": user.get_full_name()
+            "name": customer_name
+        },
+        "customizations": {
+            "title": f"Purchase: {addon.feature.name}",
+            "description": f"Add-on for {course.title}",
+            # "logo": "https://your-logo-url.com/logo.png"  # Optional
         },
         "meta": {
             "addon_id": addon.id,
             "course_id": course.id,
-            "feature_name": addon.feature.name  # Helps debug
+            "feature_name": addon.feature.name,
+            "type": "addon_purchase"  # Helps identify this in Webhooks
         }
     }
+
+    try:
+        # FIX 2: Actually send the request (this was missing)
+        response = requests.post(url, json=payload, headers=headers)
+        response_json = response.json()
+
+        if response.status_code == 200 and response_json.get('status') == 'success':
+            # 1. Get the inner dictionary (the actual payload)
+            inner_data = response_json['data']
+
+            # 2. Add the tx_ref INSIDE this inner dictionary
+            inner_data['tx_ref'] = tx_ref
+
+            # 3. Now return it
+            return True, inner_data  # Contains the 'link' needed for redirection
+        else:
+            return False, response_json.get('message', 'Payment initialization failed')
+
+    except Exception as e:
+        # FIX 3: Return a Tuple (False, error_message)
+        print(f"Addon Payment Error: {e}")
+        return False, str(e)

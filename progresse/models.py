@@ -340,7 +340,7 @@ class QuizProgress(models.Model):
         verbose_name_plural = "QuizProgress"
 
     def __str__(self):
-        return f" Quiz progress for {self.student.username}, for Quiz : {self.quiz.title})"
+        return f" Quiz progress |{self.id}| for {self.student.username}, for Quiz : {self.quiz.title}, ID: {self.quiz.id}) | state: {self.state}"
 
     def get_state_enum(self):
         return ContentState(self.state)

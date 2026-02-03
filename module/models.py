@@ -285,7 +285,7 @@ class Question(models.Model):
     order = models.PositiveIntegerField(default=1)
 
     def __str__(self):
-        return f"{self.text} (ID: {self.id})"
+        return f"{self.text} (ID: {self.id}) | for Quiz {self.quiz.id}"
 
 class QuizSubmission(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -627,7 +627,7 @@ class CertificateRequest(models.Model):
         return f"QN-{year}-{short_uuid}-{self.id}"
 
     def __str__(self):
-        return f"{self.student} → {self.course} ({self.status})"
+        return f"{self.id} | {self.student} → {self.course} | ({self.status})"
 
 class CertificatePayment(models.Model):
     STATUS_CHOICES = (

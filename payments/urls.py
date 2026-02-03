@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (PaymentViewSet, EnrollmentViewSet, PackageViewSet, AddOnViewSet, AdminPayoutViewSet,
-                    AdminPaymentStatsViewSet, AdminAnalyticsViewSet, AdminCertificatePaymentViewSet, AdminCertificateViewSet, AdminCertificateRequestViewSet)
+                    AdminPaymentStatsViewSet, AdminAnalyticsViewSet, AdminCertificatePaymentViewSet, AdminCertificateViewSet, AdminCertificateRequestViewSet, payment_success_view)
 from .webhooks import flutterwave_webhook
 
 
@@ -21,6 +21,7 @@ router.register(r'cert-payment', AdminCertificatePaymentViewSet, basename='cert-
 urlpatterns = [
     path('', include(router.urls)),
     path('webhooks/flutterwave/', flutterwave_webhook, name='flutterwave-webhook'),
+    path('payment-success/', payment_success_view, name='payment_success'),
 ]
 
 # router = DefaultRouter()
