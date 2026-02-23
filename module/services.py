@@ -491,11 +491,21 @@ def can_user_access_resource(user, resource):
             return True
 
         if resource.visibility == 'enrolled':
-            return Enrollment.objects.filter(
+            print(f"Resource Course ID: {resource.course.id}")
+
+            # Check what the user is actually enrolled in
+            user_enrollments = Enrollment.objects.filter(user=user)
+            print(f"User is enrolled in Course IDs: {[e.package.course.id for e in user_enrollments]}")
+
+            print(f"checking student {user.email} ")
+            has_access = Enrollment.objects.filter(
                 user=user,
                 package__course=resource.course,
-                status='active'
+                status__in=['active', 'completed']
             ).exists()
+
+            print(f"  -> Has Access? {has_access}")  # Debug print
+            return has_access
 
     return False
 

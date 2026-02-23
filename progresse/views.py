@@ -1,5 +1,5 @@
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from module.permissions import IsAdminUser, IsStudent, IsOwnerOrAdmin
 from users.models import CustomUser
 from progresse.models import *
@@ -16,10 +16,16 @@ class ContentProgressViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         crud_actions = {'create', 'update', 'partial_update', 'destroy'}
+
         if self.action in crud_actions:
+            # Keep your admin lock here for editing/deleting
             return [IsAdminUser()]
+
         elif self.action in {'list', 'retrieve'}:
-            return [IsStudent(), IsOwnerOrAdmin()]
+            # FIX: Just require them to be logged in.
+            # Your get_queryset() will automatically protect the data.
+            return [IsAuthenticated()]
+
         return [AllowAny()]
 
     def get_queryset(self):
@@ -37,10 +43,16 @@ class LessonProgressViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         crud_actions = {'create', 'update', 'partial_update', 'destroy'}
+
         if self.action in crud_actions:
+            # Keep your admin lock here for editing/deleting
             return [IsAdminUser()]
+
         elif self.action in {'list', 'retrieve'}:
-            return [IsStudent(), IsOwnerOrAdmin()]
+            # FIX: Just require them to be logged in.
+            # Your get_queryset() will automatically protect the data.
+            return [IsAuthenticated()]
+
         return [AllowAny()]
 
     def get_queryset(self):
@@ -58,10 +70,16 @@ class ModuleCompletionViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         crud_actions = {'create', 'update', 'partial_update', 'destroy'}
+
         if self.action in crud_actions:
+            # Keep your admin lock here for editing/deleting
             return [IsAdminUser()]
+
         elif self.action in {'list', 'retrieve'}:
-            return [IsStudent(), IsOwnerOrAdmin()]
+            # FIX: Just require them to be logged in.
+            # Your get_queryset() will automatically protect the data.
+            return [IsAuthenticated()]
+
         return [AllowAny()]
 
     def get_queryset(self):
@@ -94,10 +112,16 @@ class QuizProgressViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         crud_actions = {'create', 'update', 'partial_update', 'destroy'}
+
         if self.action in crud_actions:
+            # Keep your admin lock here for editing/deleting
             return [IsAdminUser()]
+
         elif self.action in {'list', 'retrieve'}:
-            return [IsStudent(), IsOwnerOrAdmin()]
+            # FIX: Just require them to be logged in.
+            # Your get_queryset() will automatically protect the data.
+            return [IsAuthenticated()]
+
         return [AllowAny()]
 
     def get_queryset(self):
@@ -109,27 +133,22 @@ class QuizProgressViewSet(viewsets.ModelViewSet):
         return QuizProgress.objects.none()
 
 
-class ProjectProgressSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProjectProgress
-        fields = [
-            'id', 'student', 'project', 'state', 'is_submitted',
-            'is_instructor_approved', 'is_peer_reviewed', 'started_at',
-            'submitted_at', 'approved_at', 'completed_at', 'last_accessed',
-            'completion_data'
-        ]
-
-
 class ProjectProgressViewSet(viewsets.ModelViewSet):
     queryset = ProjectProgress.objects.all()
     serializer_class = ProjectProgressSerializer
 
     def get_permissions(self):
         crud_actions = {'create', 'update', 'partial_update', 'destroy'}
+
         if self.action in crud_actions:
+            # Keep your admin lock here for editing/deleting
             return [IsAdminUser()]
+
         elif self.action in {'list', 'retrieve'}:
-            return [IsStudent(), IsOwnerOrAdmin()]
+            # FIX: Just require them to be logged in.
+            # Your get_queryset() will automatically protect the data.
+            return [IsAuthenticated()]
+
         return [AllowAny()]
 
     def get_queryset(self):
@@ -147,10 +166,16 @@ class ProgressEventViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         crud_actions = {'create', 'update', 'partial_update', 'destroy'}
+
         if self.action in crud_actions:
+            # Keep your admin lock here for editing/deleting
             return [IsAdminUser()]
+
         elif self.action in {'list', 'retrieve'}:
-            return [IsStudent(), IsOwnerOrAdmin()]
+            # FIX: Just require them to be logged in.
+            # Your get_queryset() will automatically protect the data.
+            return [IsAuthenticated()]
+
         return [AllowAny()]
 
     def get_queryset(self):

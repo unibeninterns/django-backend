@@ -78,18 +78,29 @@ def flutterwave_webhook(request):
                 # Find the payout using the ID we stored earlier
                 payout = Payout.objects.get(flutterwave_id=transfer_id)
 
+                current_notes = payout.notes or ""
+
                 if status == 'SUCCESSFUL':
                     payout.status = 'completed'
                     payout.completed_at = timezone.now()
-                    payout.notes += "\nwebhook: Transfer Confirmed."
+                    payout.notes = current_notes + "\nwebhook: Transfer Confirmed."
                 elif status == 'FAILED':
                     payout.status = 'failed'
-                    payout.notes += f"\nwebhook: Bank Rejected - {data.get('complete_message')}"
+                    payout.notes = current_notes + f"\nwebhook: Bank Rejected - {data.get('complete_message')}"
 
                 payout.save()
 
+                return JsonResponse({
+                    'status': 'success',
+                    'message': f'Payout {payout.id} processed'
+                })
+
             except Payout.DoesNotExist:
                 print(f"Payout with FW-ID {transfer_id} not found.")
+                return JsonResponse({
+                    'status': 'ignored',
+                    'message': 'Payout not found in system'
+                })
 
         else:
             return JsonResponse({

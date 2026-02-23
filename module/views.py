@@ -65,7 +65,7 @@ class CourseViewSet(viewsets.ModelViewSet):
 
         # 3. Student Logic: If role is student, only allow list and retrieve
         if getattr(user, 'role', None) == 'student':
-            if self.action in ['list', 'retrieve', 'course_progress', 'dashboard', 'active_courses', 'get_weeks_progress']:
+            if self.action in ['list', 'retrieve', 'course_progress', 'dashboard', 'active_courses', 'get_weeks_progress', 'get_weekly_time_spent']:
                 return [IsStudent(), CanAccessContent()]
 
             # If a student tries to 'create' or 'destroy', block them
@@ -74,6 +74,7 @@ class CourseViewSet(viewsets.ModelViewSet):
         # 4. Fallback for any other roles or edge cases
         return [IsAdminUser()]
 
+    @action(detail=False, methods=['get'])
     def get_weekly_time_spent(self, request):
         user = request.user
         if user.is_authenticated and isinstance(user, CustomUser) and user.role == 'student':
@@ -82,8 +83,12 @@ class CourseViewSet(viewsets.ModelViewSet):
             # Example aggregation logic
             weekly_time = {}
             for p in progress:
-                week = p.content_item.module.week_number  # assuming module has week_number
-                weekly_time[week] = weekly_time.get(week, 0) + p.time_spent
+                week = p.content_item.lesson.module.week_number
+
+                minutes_spent = int(p.time_spent.total_seconds() / 60)
+                hours_spent = round(p.time_spent.total_seconds() / 3600, 2)
+
+                weekly_time[week] = weekly_time.get(week, 0) + minutes_spent
 
             return Response({'weekly_time_spent': weekly_time})
 
@@ -138,16 +143,17 @@ class CourseViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated or user.role != 'student':
             return Response({"detail": "Unauthorized"}, status=403)
 
-        enrolled_courses = Course.objects.filter(
+        my_courses = Course.objects.filter(
             packages__enrollment__user=user,
-            packages__enrollment__status='active'
+            packages__enrollment__status__in=['active', 'completed']
         ).distinct()
 
         data = []
-        for course in enrolled_courses:
+        for course in my_courses:
             data.append({
                 "course_id": course.id,
                 "title": course.title,
+                # This function will work for both since it just calculates progress
                 "completion_percentage": get_course_completion_percentage(user, course)
             })
 
@@ -2692,7 +2698,6 @@ class AdminCourseViewSet(viewsets.ModelViewSet):
             ]
         })
 
-
 class AdminCourseStatsViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
 
@@ -3036,12 +3041,7 @@ class AdminResourceViewSet(viewsets.ModelViewSet):
 
         return qs
 
-    @action(
-        detail=False,
-        methods=['get'],
-        url_path='tree',
-        permission_classes=[IsAdminUser]
-    )
+    @action(detail=False, methods=['get'], url_path='tree', permission_classes=[IsAdminUser])
     def tree(self, request):
         courses = Course.objects.prefetch_related(
             'modules__resources',
@@ -3093,20 +3093,20 @@ class ResourceViewSet(viewsets.ReadOnlyModelViewSet):
             .select_related(
                 'course',
                 'module',
-                'content_item',
-                'content_item__lesson'
+                'content_item',  # <--- Critical for title/type
             )
             .filter(is_active=True)
         )
 
         # Admin sees everything
-        if user.role == 'admin':
+        if getattr(user, 'role', None) == 'admin':
             return qs
 
         # Students / tutors: filter by access rules
         allowed_ids = [
             r.id for r in qs if can_user_access_resource(user, r)
         ]
+        print(allowed_ids)
         return qs.filter(id__in=allowed_ids)
 
     def retrieve(self, request, *args, **kwargs):

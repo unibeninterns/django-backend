@@ -66,3 +66,14 @@ class ProgressEventSerializer(serializers.ModelSerializer):
             'id', 'student', 'content_type', 'content_id', 'event_type',
             'old_state', 'new_state', 'metadata', 'timestamp'
         ]
+
+
+class ProjectProgressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProjectProgress
+        fields = [
+            'id', 'student', 'instructions', 'state', 'is_submitted',
+            'is_instructor_approved', 'is_peer_reviewed', 'started_at',
+            'submitted_at', 'approved_at', 'completed_at', 'last_accessed',
+            'completion_data'
+        ]
