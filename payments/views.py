@@ -543,7 +543,6 @@ class PackageViewSet(viewsets.ReadOnlyModelViewSet):
 
         return queryset
 
-
 class AddOnViewSet(viewsets.ModelViewSet):
     # Fix: Show Active features, not Inactive ones
     queryset = AddOn.objects.filter(is_active=True)
@@ -729,6 +728,7 @@ class AdminPayoutViewSet(viewsets.ModelViewSet):
     serializer_class = PayoutSerializer
     permission_classes = [IsAdminUser]
 
+    # todo: add static ip to flutterwave for this
     @action(detail=True, methods=['post'])
     def process_payout(self, request, pk=None):
         """
@@ -749,6 +749,33 @@ class AdminPayoutViewSet(viewsets.ModelViewSet):
         else:
             return Response(
                 {'error': 'Payout Failed', 'details': data},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'])
+    def retry_payout(self, request, pk=None):
+        """
+        Endpoint: POST /api/payouts/{id}/retry_payout/
+        """
+        payout = self.get_object()
+
+        # CRITICAL: Only allow retries on failed payouts to prevent double-spending
+        if payout.status != 'failed':
+            return Response(
+                {'error': f'Cannot retry a payout with status: {payout.status}. Only failed payouts can be retried.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # (Optional) Log that an admin initiated a retry
+        # print(f"Retrying payout {payout.id} for {payout.recipient.email}")
+
+        success, data = initiate_flutterwave_transfer(payout)
+
+        if success:
+            return Response({'status': 'Payout Retry Initiated', 'data': data})
+        else:
+            return Response(
+                {'error': 'Payout Retry Failed', 'details': data},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

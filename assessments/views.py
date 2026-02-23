@@ -18,12 +18,17 @@ class SessionAttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = SessionAttendanceSerializer
 
     def get_permissions(self):
-        """Apply permissions based on action."""
         crud_actions = {'create', 'update', 'partial_update', 'destroy'}
+
         if self.action in crud_actions:
+            # Keep your admin lock here for editing/deleting
             return [IsAdminUser()]
+
         elif self.action in {'list', 'retrieve'}:
-            return [IsStudent(), IsOwnerOrAdmin(), CanAccessContent()]
+            # FIX: Just require them to be logged in.
+            # Your get_queryset() will automatically protect the data.
+            return [IsAuthenticated()]
+
         return [AllowAny()]
 
     def get_queryset(self):

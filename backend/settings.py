@@ -142,7 +142,7 @@ AUTHENTICATION_BACKENDS = (
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
+        # 'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
@@ -167,6 +167,7 @@ ACCOUNT_EMAIL_VERIFICATION = "none"
 ACCOUNT_CONFIRM_EMAIL_ON_GET = False
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
+SOCIALACCOUNT_ADAPTER = 'users.adapters.CustomSocialAccountAdapter'
 
 # Frontend URL
 FRONTEND_URL = "http://127.0.0.1:8000"   #Vite Endpoint, please change as expected
@@ -246,6 +247,24 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute=0, hour=0, day_of_month='1'),
     },
 
+}
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APP': {
+            # This links your .env variable to the Allauth configuration
+            'client_id': os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_KEY'),
+            'secret': os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET'),
+            'key': ''
+        },
+        'SCOPE': [
+            'profile',
+            'email',
+        ],
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        }
+    }
 }
 
 # # Test Celery locally

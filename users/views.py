@@ -27,18 +27,10 @@ from drf_yasg import openapi
 from datetime import timedelta
 from .serializers import CustomRegisterSerializer, UserSettingsSerializer
 from rest_framework.permissions import IsAdminUser
-from users.models import (
-    TutorProfile,
-    TutorInvitation,
-    TutorCourseAssignment,
-    CustomUser,
-    TutorCourse
-)
-from users.serializers import (
-    TutorProfileSerializer,
-    TutorInvitationSerializer,
-    TutorCourseAssignmentSerializer
-)
+from users.models import (TutorProfile, TutorInvitation, TutorCourseAssignment, CustomUser, TutorCourse)
+
+from users.serializers import (TutorProfileSerializer, TutorInvitationSerializer, TutorCourseAssignmentSerializer)
+
 from module.models import Course
 import csv
 from django.http import HttpResponse

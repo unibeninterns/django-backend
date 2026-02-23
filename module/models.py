@@ -157,7 +157,7 @@ class ContentItem(models.Model):
         ('text', 'Text'),
     )
     id = models.AutoField(primary_key=True)
-    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='content_items')
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='content_items', null=True, blank=True)
     type = models.CharField(max_length=10, choices=TYPE_CHOICES)
     title = models.CharField(max_length=200)
     file = models.FileField(upload_to='content_files/', null=True, blank=True)
@@ -790,6 +790,9 @@ class Resource(models.Model):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return str(self.id)
 
 class ResourceActivity(models.Model):
     ACTION_CHOICES = (

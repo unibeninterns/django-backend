@@ -166,6 +166,8 @@ class PayoutSerializer(serializers.ModelSerializer):
             'created_at',
             'completed_at',
             'notes',
+            'account_number',
+            'bank_code'
         ]
         read_only_fields = ['created_at', 'completed_at']
 

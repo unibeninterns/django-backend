@@ -16,17 +16,19 @@ def initiate_flutterwave_transfer(payout_obj):
         "Content-Type": "application/json"
     }
 
-    # Generate a unique reference if one doesn't exist
-    if not payout_obj.reference:
-        payout_obj.reference = f"PAY-{uuid.uuid4().hex[:12]}"
-        payout_obj.save()
+    # FIX 1: ALWAYS generate a new reference to prevent duplicate errors on retries
+    payout_obj.reference = f"PAY-{uuid.uuid4().hex[:12]}"
+
+    # FIX 2: Safe notes handling (prevents NoneType crash)
+    current_notes = payout_obj.notes or ""
 
     payload = {
-        "account_bank": payout_obj.bank_code,  # e.g., "044"
-        "account_number": payout_obj.account_number,  # e.g., "069..."
-        "amount": int(payout_obj.amount),  # Ensure it's a number
+        "account_bank": payout_obj.bank_code,
+        "account_number": payout_obj.account_number,
+        "amount": int(payout_obj.amount),
         "currency": "NGN",
-        "narration": f"Payout for {payout_obj.course.title if payout_obj.course else 'Course Earnings'}",
+        # Added a fallback just in case payout_obj.course is None
+        "narration": f"Payout for {getattr(payout_obj.course, 'title', 'Course Earnings')}",
         "reference": payout_obj.reference,
         "callback_url": f"{domain}{webhook_path}"
     }
@@ -36,22 +38,21 @@ def initiate_flutterwave_transfer(payout_obj):
         data = response.json()
 
         if response.status_code == 200 and data.get('status') == 'success':
-            # The transfer is QUEUED (not necessarily completed yet)
-            payout_obj.status = 'pending'
+            # FIX 3: Change to 'processing' so it can't be clicked/processed again
+            payout_obj.status = 'processing'
             payout_obj.flutterwave_id = data['data']['id']
-            payout_obj.notes += f"\nTransfer Initiated: {data['message']}"
+            payout_obj.notes = current_notes + f"\nTransfer Initiated: {data['message']}"
             payout_obj.save()
             return True, data
         else:
-            # The API call failed (e.g., insufficient balance)
             payout_obj.status = 'failed'
-            payout_obj.notes += f"\nFailed: {data.get('message', 'Unknown Error')}"
+            payout_obj.notes = current_notes + f"\nFailed: {data.get('message', 'Unknown Error')}"
             payout_obj.save()
             return False, data
 
     except Exception as e:
         payout_obj.status = 'failed'
-        payout_obj.notes += f"\nSystem Error: {str(e)}"
+        payout_obj.notes = current_notes + f"\nSystem Error: {str(e)}"
         payout_obj.save()
         return False, str(e)
 

@@ -564,23 +564,92 @@ class CertificateVerificationSerializer(serializers.ModelSerializer):
         return "valid"
 
 class ResourceSerializer(serializers.ModelSerializer):
-    title = serializers.CharField(source='content_item.title', read_only=True)
-    type = serializers.CharField(source='content_item.type', read_only=True)
-    file = serializers.FileField(source='content_item.file', read_only=True)
-    external_url = serializers.URLField(source='content_item.external_url', read_only=True)
+    # 1. Define Explicit Fields (So Postman can just send 'title', 'file', etc.)
+    title = serializers.CharField(write_only=True, required=True)
+    type = serializers.ChoiceField(
+        choices=[('file', 'File'), ('video', 'Video'), ('link', 'Link'), ('pdf', 'PDF')],
+        write_only=True,
+        required=True
+    )
+    file = serializers.FileField(write_only=True, required=False)
+    external_url = serializers.URLField(write_only=True, required=False)
+
+    # 2. Add Context fields (Read-Only)
+    course_title = serializers.CharField(source='course.title', read_only=True)
+    module_title = serializers.CharField(source='module.title', read_only=True)
 
     class Meta:
         model = Resource
         fields = [
             'id',
-            'title',
-            'type',
-            'file',
-            'external_url',
-            'visibility',
-            'course',
-            'module',
+            'title', 'type', 'file', 'external_url',  # Write fields
+            'visibility', 'course', 'course_title', 'module', 'module_title'  # Shared/Read fields
         ]
+
+    def to_representation(self, instance):
+        """
+        Custom Output: When READING data, pull it from the linked ContentItem.
+        """
+        data = super().to_representation(instance)
+
+        # Grab the linked content
+        content = instance.content_item
+
+        if content:
+            # Overwrite the empty write-only fields with actual data
+            data['title'] = content.title
+            data['type'] = content.type
+            data['external_url'] = content.external_url
+
+            # Smart URL Logic
+            if content.file:
+                request = self.context.get('request')
+                url = content.file.url
+                data['access_url'] = request.build_absolute_uri(url) if request else url
+            else:
+                data['access_url'] = content.external_url
+        else:
+            # Fallback for broken resources
+            data['title'] = "Untitled Resource"
+            data['access_url'] = None
+
+        return data
+
+    def create(self, validated_data):
+        """
+        Intercept the 'title', 'file', etc., and create the ContentItem first.
+        """
+        # 1. Pop the content data
+        title = validated_data.pop('title')
+        c_type = validated_data.pop('type')
+        file_obj = validated_data.pop('file', None)
+        url_obj = validated_data.pop('external_url', None)
+
+        # 2. Extract context
+        course = validated_data.get('course')
+        module = validated_data.get('module')
+        visibility = validated_data.get('visibility', 'private')
+
+        # 3. Create ContentItem
+        from .models import ContentItem
+        content = ContentItem.objects.create(
+            title=title,
+            type=c_type,
+            file=file_obj,
+            external_url=url_obj
+            # lesson is explicitly NOT set (it remains Null)
+        )
+
+        # 4. Create Resource
+        resource = Resource.objects.create(
+            content_item=content,
+            course=course,
+            module=module,
+            visibility=visibility,
+            is_active=True
+        )
+
+        return resource
 
 class CourseOverviewSerializer(serializers.ModelSerializer):
     objectives = serializers.StringRelatedField(many=True)
@@ -608,7 +677,6 @@ class CourseOverviewSerializer(serializers.ModelSerializer):
             }
             for tc in tutors
         ]
-
 
 class SupportTicketSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
